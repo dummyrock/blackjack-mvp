@@ -122,9 +122,9 @@ export default function PokerTableLayout({
 
   function NeighborBlock({ seat, side }: { seat: PositionedSeat; side: "left" | "right" }) {
     const hand = seat.playerId ? handsByPlayerId[seat.playerId] : undefined;
-    const first = hand?.hands?.[0];
-    const cards = first?.cards ?? [];
-    const totalLabel = cards.length ? totalLabelFor(cards) : "";
+    const hands = hand?.hands ?? [];
+    const fallbackHands = [{ cards: [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }] }];
+    const renderHands = hands.length ? hands : fallbackHands;
 
     return (
       <View
@@ -137,22 +137,33 @@ export default function PokerTableLayout({
           {seat.name ?? "Player"}
         </Text>
 
-        <View style={styles.neighborCards}>
-          {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).map((c, idx) => {
-            const isPlaceholder = c.rank === "?" && c.suit === "?";
+        <View style={styles.neighborHandsWrap}>
+          {renderHands.map((h, handIdx) => {
+            const cards = h.cards ?? [];
+            const totalLabel = cards.length ? totalLabelFor(cards) : "";
+            const isActive = h.isActive === true;
             return (
-              <View key={idx} style={{ marginRight: -16 }}>
-                <CardView rank={c.rank} suit={c.suit} hidden={isPlaceholder} />
+              <View key={handIdx} style={[styles.neighborHandBox, isActive ? styles.neighborHandActive : null]}>
+                <View style={styles.neighborCards}>
+                  {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).map((c, idx) => {
+                    const isPlaceholder = c.rank === "?" && c.suit === "?";
+                    return (
+                      <View key={idx} style={{ marginRight: -16 }}>
+                        <CardView rank={c.rank} suit={c.suit} hidden={isPlaceholder} />
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {totalLabel ? (
+                  <View style={styles.neighborPill}>
+                    <Text style={styles.neighborPillText}>Total {totalLabel}</Text>
+                  </View>
+                ) : null}
               </View>
             );
           })}
         </View>
-
-        {totalLabel ? (
-          <View style={styles.underPill}>
-            <Text style={styles.underText}>Total {totalLabel}</Text>
-          </View>
-        ) : null}
       </View>
     );
   }
@@ -314,6 +325,42 @@ const styles = StyleSheet.create({
   neighborCards: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  neighborHandsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    width: "100%",
+  },
+  neighborHandBox: {
+    alignItems: "center",
+    gap: 6,
+  },
+  neighborHandActive: {
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#facc15",
+    padding: 4,
+    backgroundColor: "rgba(250, 204, 21, 0.1)",
+  },
+  neighborPill: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff7d6",
+    borderWidth: 2,
+    borderColor: "#1b0b24",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  neighborPillText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.3,
   },
 
   // === YOU AREA ===
