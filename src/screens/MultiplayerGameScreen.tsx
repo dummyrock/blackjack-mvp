@@ -9,6 +9,7 @@ import {
   Animated,
   useWindowDimensions,
 } from "react-native";
+import { Audio } from "expo-av";
 import {
   GameState,
   canDouble,
@@ -119,6 +120,9 @@ function chipColorForValue(v: number) {
   return "#f97316";
 }
 
+const BG_MUSIC = require("../../assets/sounds/bg-loop.wav");
+const CARD_FLIP_SOUND = require("../../assets/sounds/card-flip.wav");
+
 export default function MultiplayerGameScreen({
   roomCode,
   myPlayerId,
@@ -190,6 +194,14 @@ export default function MultiplayerGameScreen({
   const deltaAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const deltaHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ---- Audio ----
+  const bgSoundRef = useRef<Audio.Sound | null>(null);
+  const flipSoundRef = useRef<Audio.Sound | null>(null);
+  const audioUnlockedRef = useRef<boolean>(false);
+  const flipCooldownRef = useRef<number>(0);
+  const prevCardCountRef = useRef<number>(0);
+  const cardCountReadyRef = useRef<boolean>(false);
+
   function showBankrollDelta(profit: number) {
     if (profit === 0) {
       setBankrollDelta(null);
@@ -235,6 +247,54 @@ export default function MultiplayerGameScreen({
       deltaAnimRef.current?.stop();
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+        });
+
+        const [bg, flip] = await Promise.all([
+          Audio.Sound.createAsync(BG_MUSIC, { isLooping: true, volume: 0.25, shouldPlay: false }),
+          Audio.Sound.createAsync(CARD_FLIP_SOUND, { volume: 0.6, shouldPlay: false }),
+        ]);
+
+        if (!mounted) {
+          await bg.sound.unloadAsync();
+          await flip.sound.unloadAsync();
+          return;
+        }
+
+        bgSoundRef.current = bg.sound;
+        flipSoundRef.current = flip.sound;
+      } catch (e) {
+        console.warn("audio init failed", e);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      bgSoundRef.current?.unloadAsync();
+      flipSoundRef.current?.unloadAsync();
+    };
+  }, []);
+
+  const ensureAudio = () => {
+    if (audioUnlockedRef.current) return;
+    audioUnlockedRef.current = true;
+    bgSoundRef.current?.playAsync().catch(() => undefined);
+  };
+
+  const playFlip = () => {
+    const now = Date.now();
+    if (now - flipCooldownRef.current < 120) return;
+    flipCooldownRef.current = now;
+    flipSoundRef.current?.replayAsync().catch(() => undefined);
+  };
 
   // ---- BET MODAL ----
   const [betModalOpen, setBetModalOpen] = useState<boolean>(true);
@@ -524,6 +584,41 @@ export default function MultiplayerGameScreen({
       hidden: !src.revealDealer && idx === 1,
     }));
   }, [state, table, showBettingState]);
+
+  const cardCount = useMemo(() => {
+    if (showBettingState) return 0;
+    if (table?.game) {
+      const dealerCount = table.game.dealer?.length ?? 0;
+      const playerCount = table.game.players.reduce((sum, p) => {
+        return (
+          sum +
+          p.hands.reduce((handSum, h) => {
+            return handSum + (h.cards?.length ?? 0);
+          }, 0)
+        );
+      }, 0);
+      return dealerCount + playerCount;
+    }
+    if (state) {
+      const dealerCount = state.dealer?.length ?? 0;
+      const playerCount = state.playerHands.reduce((sum, h) => sum + (h.cards?.length ?? 0), 0);
+      return dealerCount + playerCount;
+    }
+    return 0;
+  }, [showBettingState, table?.game, state]);
+
+  useEffect(() => {
+    if (!cardCountReadyRef.current) {
+      prevCardCountRef.current = cardCount;
+      cardCountReadyRef.current = true;
+      return;
+    }
+
+    if (cardCount > prevCardCountRef.current) {
+      playFlip();
+    }
+    prevCardCountRef.current = cardCount;
+  }, [cardCount]);
 
   // ---- Auto-start shared round when everyone is ready (host only) ----
   useEffect(() => {
@@ -899,7 +994,7 @@ export default function MultiplayerGameScreen({
     );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} onTouchStart={ensureAudio}>
       <View style={styles.gameContent}>
             {/* TOP BAR */}
         <View style={[styles.topBar, isCompact ? styles.topBarCompact : null]}>
