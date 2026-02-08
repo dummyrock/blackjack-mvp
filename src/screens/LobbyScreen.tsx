@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, Share } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Share, ScrollView } from "react-native";
 import {
   createTable,
   joinTable,
@@ -181,7 +181,7 @@ export default function LobbyScreen({
   }, [roomCode, table?.status, onStartGame, playerId, name]);
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.h1}>Multiplayer Lobby</Text>
 
       <View style={styles.panel}>
@@ -305,16 +305,16 @@ export default function LobbyScreen({
       <Text style={styles.note}>
         Invite uses your phone/computer share sheet. For now, players join by entering the room code.
       </Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 12 },
+  container: { gap: 10, padding: 12, paddingBottom: 18 },
 
   h1: {
     color: "#fff7d6",
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "900",
     letterSpacing: 2,
     textTransform: "uppercase",
@@ -323,8 +323,8 @@ const styles = StyleSheet.create({
   panel: {
     backgroundColor: "#fff7d6",
     borderRadius: 22,
-    padding: 14,
-    gap: 12,
+    padding: 12,
+    gap: 10,
     borderWidth: 4,
     borderColor: "#1b0b24",
     shadowColor: "#000",
@@ -487,5 +487,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#fecaca",
   },
 
-  note: { color: "#ffe29a", fontWeight: "900", opacity: 0.95 },
+  note: { color: "#ffe29a", fontWeight: "900", opacity: 0.95, fontSize: 12 },
 });

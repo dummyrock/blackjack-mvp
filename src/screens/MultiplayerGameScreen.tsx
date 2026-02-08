@@ -5,9 +5,9 @@ import {
   Text,
   View,
   Pressable,
-  ScrollView,
   ActivityIndicator,
   Animated,
+  useWindowDimensions,
 } from "react-native";
 import {
   GameState,
@@ -43,15 +43,17 @@ function CardView({
   rank,
   suit,
   hidden,
+  compact,
 }: {
   rank: string;
   suit: string;
   hidden?: boolean;
+  compact?: boolean;
 }) {
   if (hidden) {
     return (
-      <View style={[styles.card, styles.cardBack]}>
-        <Text style={styles.cardBackText}>★</Text>
+      <View style={[styles.card, compact ? styles.cardCompact : null, styles.cardBack]}>
+        <Text style={[styles.cardBackText, compact ? styles.cardBackTextCompact : null]}>?</Text>
       </View>
     );
   }
@@ -59,20 +61,19 @@ function CardView({
   const color = suitColor(suit);
 
   return (
-    <View style={styles.card}>
-      <Text style={[styles.cardCorner, { color }]}>
+    <View style={[styles.card, compact ? styles.cardCompact : null]}>
+      <Text style={[styles.cardCorner, compact ? styles.cardCornerCompact : null, { color }]}>
         {rank}
         {suit}
       </Text>
-      <Text style={[styles.cardCenter, { color }]}>{suit}</Text>
-      <Text style={[styles.cardCornerBottom, { color }]}>
+      <Text style={[styles.cardCenter, compact ? styles.cardCenterCompact : null, { color }]}>{suit}</Text>
+      <Text style={[styles.cardCornerBottom, compact ? styles.cardCornerCompact : null, { color }]}>
         {rank}
         {suit}
       </Text>
     </View>
   );
 }
-
 /** ---------- Pixel-ish Chip UI ---------- */
 function Chip({
   value,
@@ -101,19 +102,8 @@ function Chip({
       ]}
     >
       <View style={[styles.chipOuter, { backgroundColor: color, borderRadius: size / 2 }]}>
-        <View style={[styles.chipPixel, { top: 6, left: size / 2 - 3 }]} />
-        <View style={[styles.chipPixel, { bottom: 6, left: size / 2 - 3 }]} />
-        <View style={[styles.chipPixel, { left: 6, top: size / 2 - 3 }]} />
-        <View style={[styles.chipPixel, { right: 6, top: size / 2 - 3 }]} />
-        <View style={[styles.chipPixel, { top: 12, left: 12 }]} />
-        <View style={[styles.chipPixel, { top: 12, right: 12 }]} />
-        <View style={[styles.chipPixel, { bottom: 12, left: 12 }]} />
-        <View style={[styles.chipPixel, { bottom: 12, right: 12 }]} />
-
-        <View style={styles.chipRing1}>
-          <View style={styles.chipRing2}>
-            <Text style={styles.chipValueText}>{value}</Text>
-          </View>
+        <View style={styles.stackChipRing}>
+          <Text style={styles.stackChipText}>{value}</Text>
         </View>
       </View>
     </Pressable>
@@ -140,6 +130,8 @@ export default function MultiplayerGameScreen({
   myName: string;
   onExit: () => void;
 }) {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 900;
   // ---- Lobby seats only (visual multiplayer) ----
   const [table, setTable] = useState<TableDoc | null>(null);
 
@@ -809,7 +801,14 @@ export default function MultiplayerGameScreen({
       allowSurrender: false,
     });
 
-    switch (advice.action) {
+    const cardsCount = hand.cards.length;
+    const action = advice.action;
+
+    if ((action === "D" || action === "Ds") && cardsCount !== 2) {
+      return action === "Ds" ? "Stand" : "Hit";
+    }
+
+    switch (action) {
       case "P":
         return "Split";
       case "D":
@@ -864,27 +863,43 @@ export default function MultiplayerGameScreen({
     return r1 === r2;
   }, [table, sharedPlayerIndex, sharedPlayer]);
 
+  const sharedIsMyTurn =
+    !!table?.game &&
+    table.game.phase === "round_player" &&
+    table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId;
+  const canAct = table?.game ? sharedIsMyTurn && sharedHandPlaying : localHandPlaying;
+  const actionLocked = isHandFinished || inIntermission || waitingForReady;
+  const canOpenBet =
+    !betModalOpen &&
+    !(
+      inIntermission ||
+      (table?.game ? table.game.phase !== "intermission" && table.game.phase !== "betting" && !waitingForReady : false)
+    );
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.gameContent} showsVerticalScrollIndicator={false}>
-        {/* TOP BAR */}
-        <View style={styles.topBar}>
+      <View style={styles.gameContent}>
+            {/* TOP BAR */}
+        <View style={[styles.topBar, isCompact ? styles.topBarCompact : null]}>
           <View style={styles.topBarSide}>
-            <Text style={styles.brand}>BLACKJACK</Text>
-            <Text style={styles.meta}>Room: {roomCode || "local"}</Text>
+            <Text style={[styles.brand, isCompact ? styles.brandCompact : null]}>BLACKJACK</Text>
+            <Text style={[styles.meta, isCompact ? styles.metaCompact : null]}>Room: {roomCode || "local"}</Text>
           </View>
 
-          <View style={styles.bankrollCenter}>
-            <View style={styles.bankrollPill}>
-              <Text style={styles.bankrollLabel}>Bankroll</Text>
+          <View style={[styles.bankrollCenter, isCompact ? styles.bankrollCenterCompact : null]}>
+            <View style={[styles.bankrollPill, isCompact ? styles.bankrollPillCompact : null]}>
+              <Text style={[styles.bankrollLabel, isCompact ? styles.bankrollLabelCompact : null]}>Bankroll</Text>
               <View style={styles.bankrollRow}>
-                <Text style={styles.bankrollAmount}>${bankroll}</Text>
+                <Text style={[styles.bankrollAmount, isCompact ? styles.bankrollAmountCompact : null]}>
+                  ${bankroll}
+                </Text>
 
                 {bankrollDelta ? (
                   <Animated.Text
                     style={[
                       styles.bankrollDelta,
                       bankrollDelta.sign === "+" ? styles.deltaWin : styles.deltaLose,
+                      isCompact ? styles.bankrollDeltaCompact : null,
                       { opacity: deltaOpacity, transform: [{ scale: deltaScale }] },
                     ]}
                   >
@@ -896,177 +911,173 @@ export default function MultiplayerGameScreen({
           </View>
 
           <View style={[styles.topBarSide, { alignItems: "flex-end" }]}>
-            <Pressable onPress={exitToLobby} style={styles.smallBtn}>
-              <Text style={styles.smallBtnText}>Lobby</Text>
-            </Pressable>
+            <View style={[styles.topBarActions, isCompact ? styles.topBarActionsCompact : null]}>
+              <Pressable onPress={exitToLobby} style={[styles.smallBtn, isCompact ? styles.smallBtnCompact : null]}>
+                <Text style={[styles.smallBtnText, isCompact ? styles.smallBtnTextCompact : null]}>Lobby</Text>
+              </Pressable>
 
-            <Pressable onPress={resetSession} style={[styles.smallBtn, { marginTop: 8 }]}>
-              <Text style={styles.smallBtnText}>Reset</Text>
-            </Pressable>
+              <Pressable
+                onPress={resetSession}
+                style={[styles.smallBtn, isCompact ? styles.smallBtnCompact : null]}
+              >
+                <Text style={[styles.smallBtnText, isCompact ? styles.smallBtnTextCompact : null]}>Reset</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setBetModalOpen(true)}
+                disabled={!canOpenBet}
+                style={({ pressed }) => [
+                  styles.smallBtn,
+                  isCompact ? styles.smallBtnCompact : null,
+                  !canOpenBet ? styles.smallBtnDisabled : null,
+                  pressed && canOpenBet ? styles.smallBtnPressed : null,
+                ]}
+              >
+                <Text style={[styles.smallBtnText, isCompact ? styles.smallBtnTextCompact : null]}>
+                  {state ? "Bet" : "Bet / Deal"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
 
         {/* TABLE */}
-        <PokerTableLayout
-          seats={seats as any}
-          dealerTotalLabel={dealerTotalLabel}
-          maxSeats={maxSeats}
-          myPlayerId={myPlayerId}
-          dealerName="Dealer"
-          dealerCards={dealerCards}
-          handsByPlayerId={handsByPlayerId}
-          CardView={({ rank, suit, hidden }) => <CardView rank={rank} suit={suit} hidden={hidden} />}
-        />
+        <View style={styles.tableWrap}>
+            <PokerTableLayout
+              seats={seats as any}
+              dealerTotalLabel={dealerTotalLabel}
+              maxSeats={maxSeats}
+              myPlayerId={myPlayerId}
+              dealerName="Dealer"
+              dealerCards={dealerCards}
+              handsByPlayerId={handsByPlayerId}
+              CardView={({ rank, suit, hidden }) => <CardView rank={rank} suit={suit} hidden={hidden} compact={isCompact} />}
+              compact={isCompact}
+              centerContent={
+            <View style={[styles.centerControls, isCompact ? styles.centerControlsCompact : null]}>
+              {adviceLabel ? (
+                <View style={[styles.centerAdvicePill, isCompact ? styles.centerAdvicePillCompact : null]}>
+                  <Text style={[styles.centerAdviceText, isCompact ? styles.centerAdviceTextCompact : null]}>
+                    Advice: {adviceLabel}
+                  </Text>
+                </View>
+              ) : null}
+                <Pressable
+                  onPress={() => {
+                    if (table?.game) {
+                      playerAction(roomCode, myPlayerId, "hit").catch((e) => console.warn("playerAction hit", e));
+                      return;
+                    }
+                    setState((s) => (s ? hit(s) : s));
+                  }}
+                  disabled={!canAct || actionLocked}
+                style={({ pressed }) => [
+                  styles.centerPill,
+                  styles.centerPillHit,
+                  isCompact ? styles.centerPillCompact : null,
+                  !canAct || actionLocked ? styles.centerPillDisabled : null,
+                  pressed && !(!canAct || actionLocked) ? styles.centerPillPressed : null,
+                ]}
+              >
+                <Text style={[styles.centerPillText, isCompact ? styles.centerPillTextCompact : null]}>Hit</Text>
+              </Pressable>
 
-        {/* ACTION BAR */}
-        <View style={styles.actionBar}>
-          <Text style={styles.actionStatus}>
-            {waitingForReady
-              ? "Waiting for players to readyâ€¦"
-              : !activePhase
-              ? "Place a bet to deal."
-              : activePhase === "betting" || activePhase === undefined
-              ? "Place a bet to deal."
-              : activePhase === "round_player"
-              ? "Make your move"
-              : activePhase === "dealer"
-              ? "Dealer is playing…"
-              : "Game over — next game loading…"}
-          </Text>
+              <View style={[styles.centerRow, isCompact ? styles.centerRowCompact : null]}>
+                <Pressable
+                    onPress={() => {
+                      if (table?.game) {
+                        safeSetReserved((r) => r + currentHandBet);
+                        playerAction(roomCode, myPlayerId, "double").catch((e) => console.warn("playerAction double", e));
+                        return;
+                      }
+                      if (!state) return;
+                      if (!canDoubleWithBankroll) return;
+                      safeSetReserved((r) => r + currentHandBet);
+                      setState((s) => (s ? doubleDown(s) : s));
+                    }}
+                    disabled={
+                      actionLocked ||
+                      (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                    }
+                    style={({ pressed }) => [
+                      styles.centerPill,
+                      styles.centerPillAlt,
+                      isCompact ? styles.centerPillCompact : null,
+                      actionLocked ||
+                      (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                        ? styles.centerPillDisabled
+                        : null,
+                      pressed &&
+                      !(
+                        actionLocked ||
+                        (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                      )
+                        ? styles.centerPillPressed
+                        : null,
+                  ]}
+                >
+                  <Text style={[styles.centerPillText, isCompact ? styles.centerPillTextCompact : null]}>Double</Text>
+                </Pressable>
 
-          {adviceLabel ? (
-            <View style={styles.adviceRow}>
-              <View style={styles.advicePill}>
-                <Text style={styles.adviceText}>Advice: {adviceLabel}</Text>
+                  <Pressable
+                    onPress={() => {
+                      if (table?.game) {
+                        safeSetReserved((r) => r + currentHandBet);
+                        playerAction(roomCode, myPlayerId, "split").catch((e) => console.warn("playerAction split", e));
+                        return;
+                      }
+                      if (!state) return;
+                      if (!canSplitWithBankroll) return;
+                      safeSetReserved((r) => r + currentHandBet);
+                      setState((s) => (s ? split(s) : s));
+                    }}
+                    disabled={
+                      actionLocked ||
+                      (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                    }
+                    style={({ pressed }) => [
+                      styles.centerPill,
+                      styles.centerPillAlt,
+                      isCompact ? styles.centerPillCompact : null,
+                      actionLocked ||
+                      (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                        ? styles.centerPillDisabled
+                        : null,
+                      pressed &&
+                      !(
+                        actionLocked ||
+                        (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                      )
+                        ? styles.centerPillPressed
+                        : null,
+                  ]}
+                >
+                  <Text style={[styles.centerPillText, isCompact ? styles.centerPillTextCompact : null]}>Split</Text>
+                </Pressable>
               </View>
-            </View>
-          ) : null}
 
-          <View style={styles.actionRow}>
-            <Pressable
-              onPress={() => {
-                if (table?.game) {
-                  playerAction(roomCode, myPlayerId, "hit").catch((e) => console.warn("playerAction hit", e));
-                  return;
-                }
-                setState((s) => (s ? hit(s) : s));
-              }}
-              disabled={
-                (table?.game
-                  ? !(table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId) || !sharedHandPlaying
-                  : !localHandPlaying) ||
-                isHandFinished ||
-                inIntermission ||
-                waitingForReady
-              }
-              style={({ pressed }) => [
-                styles.actionBtn,
-                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId && sharedHandPlaying : localHandPlaying) || isHandFinished || inIntermission || waitingForReady) ? styles.actionBtnDisabled : null,
-                pressed ? styles.actionBtnPressed : null,
-              ]}
-            >
-              <Text style={styles.actionBtnText}>Hit</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => {
-                if (table?.game) {
-                  playerAction(roomCode, myPlayerId, "stand").catch((e) => console.warn("playerAction stand", e));
-                  return;
-                }
-                setState((s) => (s ? stand(s) : s));
-              }}
-              disabled={
-                (table?.game
-                  ? !(table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId) || !sharedHandPlaying
-                  : !localHandPlaying) ||
-                isHandFinished ||
-                inIntermission ||
-                waitingForReady
-              }
-              style={({ pressed }) => [
-                styles.actionBtn,
-                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId && sharedHandPlaying : localHandPlaying) || isHandFinished || inIntermission || waitingForReady) ? styles.actionBtnDisabled : null,
-                pressed ? styles.actionBtnPressed : null,
-              ]}
-            >
-              <Text style={styles.actionBtnText}>Stand</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.actionRow}>
-            <Pressable
-              onPress={() => {
-                if (table?.game) {
-                  // reserve bankroll locally for UI
-                  safeSetReserved((r) => r + currentHandBet);
-                  playerAction(roomCode, myPlayerId, "double").catch((e) => console.warn("playerAction double", e));
-                  return;
-                }
-                if (!state) return;
-                if (!canDoubleWithBankroll) return;
-                safeSetReserved((r) => r + currentHandBet);
-                setState((s) => (s ? doubleDown(s) : s));
-              }}
-              disabled={
-                isHandFinished ||
-                inIntermission ||
-                waitingForReady ||
-                (table?.game ? (!(sharedCanDouble) || availableBankroll < currentHandBet) : !canDoubleWithBankroll)
-              }
-              style={({ pressed }) => [
-                styles.actionBtnAlt,
-                (isHandFinished || inIntermission || waitingForReady || (table?.game ? (!(sharedCanDouble) || availableBankroll < currentHandBet) : !canDoubleWithBankroll)) ? styles.actionBtnDisabled : null,
-                pressed ? styles.actionBtnPressed : null,
-              ]}
-            >
-              <Text style={styles.actionBtnText}>Double</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => {
-                if (table?.game) {
-                  safeSetReserved((r) => r + currentHandBet);
-                  playerAction(roomCode, myPlayerId, "split").catch((e) => console.warn("playerAction split", e));
-                  return;
-                }
-                if (!state) return;
-                if (!canSplitWithBankroll) return;
-                safeSetReserved((r) => r + currentHandBet);
-                setState((s) => (s ? split(s) : s));
-              }}
-              disabled={
-                isHandFinished ||
-                inIntermission ||
-                waitingForReady ||
-                (table?.game ? (!(sharedCanSplit) || availableBankroll < currentHandBet) : !canSplitWithBankroll)
-              }
-              style={({ pressed }) => [
-                styles.actionBtnAlt,
-                (isHandFinished || inIntermission || waitingForReady || (table?.game ? (!(sharedCanSplit) || availableBankroll < currentHandBet) : !canSplitWithBankroll)) ? styles.actionBtnDisabled : null,
-                pressed ? styles.actionBtnPressed : null,
-              ]}
-            >
-              <Text style={styles.actionBtnText}>Split</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.actionRow}>
-            <Pressable
-              onPress={() => setBetModalOpen(true)}
-              disabled={
-                inIntermission ||
-                (table?.game ? table.game.phase !== "intermission" && table.game.phase !== "betting" && !waitingForReady : false)
-              }
-              style={({ pressed }) => [
-                styles.actionBtnWide,
-                inIntermission || (table?.game ? table.game.phase !== "intermission" && table.game.phase !== "betting" && !waitingForReady : false) ? styles.actionBtnDisabled : null,
-                pressed ? styles.actionBtnPressed : null,
-              ]}
-            >
-              <Text style={styles.actionBtnText}>{state ? "Bet Next Hand" : "Bet / Deal"}</Text>
-            </Pressable>
-          </View>
+                <Pressable
+                  onPress={() => {
+                    if (table?.game) {
+                      playerAction(roomCode, myPlayerId, "stand").catch((e) => console.warn("playerAction stand", e));
+                      return;
+                    }
+                    setState((s) => (s ? stand(s) : s));
+                  }}
+                  disabled={!canAct || actionLocked}
+                style={({ pressed }) => [
+                  styles.centerPill,
+                  styles.centerPillStand,
+                  isCompact ? styles.centerPillCompact : null,
+                  !canAct || actionLocked ? styles.centerPillDisabled : null,
+                  pressed && !(!canAct || actionLocked) ? styles.centerPillPressed : null,
+                ]}
+              >
+                <Text style={[styles.centerPillText, isCompact ? styles.centerPillTextCompact : null]}>Stand</Text>
+              </Pressable>
+              </View>
+            }
+          />
         </View>
 
         {/* INTERMISSION OVERLAY */}
@@ -1095,32 +1106,35 @@ export default function MultiplayerGameScreen({
         )}
 
         {/* BET MODAL */}
-        {betModalOpen && (
-          <View style={styles.overlay} pointerEvents="box-none">
-            <Pressable style={styles.overlayBackdrop} onPress={() => setBetModalOpen(false)} />
+            {betModalOpen && (
+              <View style={styles.overlay} pointerEvents="box-none">
+                <Pressable style={styles.overlayBackdrop} onPress={() => setBetModalOpen(false)} />
 
-            <View style={styles.modalCard}>
-              <View style={styles.betHeaderRow}>
-                <Text style={styles.betTitle}>Place your bet</Text>
+            <View style={[styles.modalCard, isCompact ? styles.modalCardCompact : null]}>
+              <View style={[styles.betHeaderRow, isCompact ? styles.betHeaderRowCompact : null]}>
+                <Text style={[styles.betTitle, isCompact ? styles.betTitleCompact : null]}>Place your bet</Text>
 
                 <Pressable
                   onPress={clearBet}
                   disabled={betChips.length === 0}
                   style={({ pressed }) => [
                     styles.clearBtn,
+                    isCompact ? styles.clearBtnCompact : null,
                     betChips.length === 0 ? styles.clearBtnDisabled : null,
                     pressed && betChips.length > 0 ? styles.clearBtnPressed : null,
                   ]}
                 >
-                  <Text style={styles.clearBtnText}>CLEAR</Text>
+                  <Text style={[styles.clearBtnText, isCompact ? styles.clearBtnTextCompact : null]}>CLEAR</Text>
                 </Pressable>
               </View>
 
-              <Text style={styles.betAmount}>${betTotal}</Text>
+              <Text style={[styles.betAmount, isCompact ? styles.betAmountCompact : null]}>${betTotal}</Text>
 
-              <View style={styles.stackArea}>
+              <View style={[styles.stackArea, isCompact ? styles.stackAreaCompact : null]}>
                 {betChips.length === 0 ? (
-                  <Text style={styles.stackHint}>Tap chips below to build your bet</Text>
+                  <Text style={[styles.stackHint, isCompact ? styles.stackHintCompact : null]}>
+                    Tap chips below to build your bet
+                  </Text>
                 ) : (
                   <View style={styles.stackWrap}>
                     {betChips.slice(-18).map((v, i) => {
@@ -1131,6 +1145,7 @@ export default function MultiplayerGameScreen({
                           key={`${v}-${i}`}
                           style={[
                             styles.stackChip,
+                            isCompact ? styles.stackChipCompact : null,
                             {
                               backgroundColor: color,
                               transform: [{ translateY: -lift }],
@@ -1138,8 +1153,10 @@ export default function MultiplayerGameScreen({
                             },
                           ]}
                         >
-                          <View style={styles.stackChipRing}>
-                            <Text style={styles.stackChipText}>{v}</Text>
+                          <View style={[styles.stackChipRing, isCompact ? styles.stackChipRingCompact : null]}>
+                            <Text style={[styles.stackChipText, isCompact ? styles.stackChipTextCompact : null]}>
+                              {v}
+                            </Text>
                           </View>
                         </View>
                       );
@@ -1148,11 +1165,20 @@ export default function MultiplayerGameScreen({
                 )}
               </View>
 
-              <View style={styles.chipTray}>
+              <View style={[styles.chipTray, isCompact ? styles.chipTrayCompact : null]}>
                 {getChipValues(availableBankroll).map((v) => {
                   const color = chipColorForValue(v);
                   const disabled = betTotal + v > availableBankroll;
-                  return <Chip key={v} value={v} color={color} disabled={disabled} onPress={() => addChip(v)} size={66} />;
+                  return (
+                    <Chip
+                      key={v}
+                      value={v}
+                      color={color}
+                      disabled={disabled}
+                      onPress={() => addChip(v)}
+                      size={isCompact ? 52 : 66}
+                    />
+                  );
                 })}
               </View>
 
@@ -1161,20 +1187,23 @@ export default function MultiplayerGameScreen({
                 disabled={betTotal <= 0 || betTotal > availableBankroll}
                 style={({ pressed }) => [
                   styles.dealBtn,
+                  isCompact ? styles.dealBtnCompact : null,
                   betTotal <= 0 || betTotal > availableBankroll ? styles.modalBtnDisabled : null,
                   pressed && betTotal > 0 && betTotal <= availableBankroll ? styles.modalBtnPressed : null,
                 ]}
               >
-                <Text style={styles.dealBtnText}>{roomCode ? "READY" : "DEAL"}</Text>
+                <Text style={[styles.dealBtnText, isCompact ? styles.dealBtnTextCompact : null]}>
+                  {roomCode ? "READY" : "DEAL"}
+                </Text>
               </Pressable>
 
-              <Text style={styles.betHint}>
+              <Text style={[styles.betHint, isCompact ? styles.betHintCompact : null]}>
                 Tap outside to close. Build your bet with chips, then press <Text style={{ fontWeight: "900" }}>{roomCode ? "READY" : "DEAL"}</Text>.
               </Text>
             </View>
-          </View>
-        )}
-      </ScrollView>
+              </View>
+            )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -1182,20 +1211,22 @@ export default function MultiplayerGameScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 14,
-    gap: 12,
+    padding: 0,
     backgroundColor: "#12051a",
   },
   gameContent: {
-    paddingBottom: 16,
-    gap: 12,
+    flex: 1,
+    gap: 8,
+  },
+  tableWrap: {
+    flex: 1,
   },
 
   topBar: {
     flexDirection: "row",
     alignItems: "stretch",
-    marginBottom: 6,
-    padding: 12,
+    marginBottom: 2,
+    padding: 6,
     borderRadius: 18,
     backgroundColor: "#2b0b3a",
     borderWidth: 3,
@@ -1206,38 +1237,60 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
+  topBarCompact: {
+    padding: 4,
+    borderRadius: 10,
+  },
 
   topBarSide: {
     flex: 1,
     justifyContent: "center",
   },
+  topBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  topBarActionsCompact: {
+    gap: 6,
+  },
 
   brand: {
     color: "#fff7d6",
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: "900",
-    letterSpacing: 3,
+    letterSpacing: 1.6,
     textTransform: "uppercase",
   },
+  brandCompact: {
+    fontSize: 14,
+    letterSpacing: 1.2,
+  },
   meta: {
-    marginTop: 2,
+    marginTop: 0,
     color: "#ffe29a",
     fontWeight: "900",
   },
+  metaCompact: {
+    fontSize: 9,
+  },
 
   bankrollCenter: {
-    width: 250,
+    width: 170,
     alignItems: "center",
     justifyContent: "center",
   },
+  bankrollCenterCompact: {
+    width: 120,
+  },
   bankrollPill: {
     width: "100%",
-    borderRadius: 18,
+    borderRadius: 12,
     backgroundColor: "#ffd24a",
     borderWidth: 3,
     borderColor: "#1b0b24",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     alignItems: "center",
     shadowColor: "#000",
     shadowOpacity: 0.25,
@@ -1245,13 +1298,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     elevation: 5,
   },
+  bankrollPillCompact: {
+    borderRadius: 10,
+    borderWidth: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 5,
+  },
   bankrollLabel: {
     color: "#1b0b24",
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
     opacity: 0.9,
-    fontSize: 13,
+    fontSize: 10,
+  },
+  bankrollLabelCompact: {
+    fontSize: 8,
+    letterSpacing: 0.3,
   },
   bankrollRow: {
     flexDirection: "row",
@@ -1262,40 +1325,70 @@ const styles = StyleSheet.create({
   bankrollAmount: {
     color: "#1b0b24",
     fontWeight: "900",
-    fontSize: 30,
-    letterSpacing: 1,
+    fontSize: 20,
+    letterSpacing: 0.4,
+  },
+  bankrollAmountCompact: {
+    fontSize: 14,
+    letterSpacing: 0.3,
   },
   bankrollDelta: {
     fontWeight: "900",
-    fontSize: 18,
-    letterSpacing: 0.5,
+    fontSize: 11,
+    letterSpacing: 0.3,
+  },
+  bankrollDeltaCompact: {
+    fontSize: 9,
+    letterSpacing: 0.2,
   },
   deltaWin: { color: "#16a34a" },
   deltaLose: { color: "#dc2626" },
 
   smallBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
     backgroundColor: "#ff4d8d",
     borderWidth: 3,
     borderColor: "#1b0b24",
+  },
+  smallBtnCompact: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 9,
+    borderWidth: 2,
   },
   smallBtnText: {
     color: "#1b0b24",
     fontWeight: "900",
     letterSpacing: 1,
   },
+  smallBtnTextCompact: {
+    fontSize: 9,
+    letterSpacing: 0.3,
+  },
+  smallBtnDisabled: {
+    backgroundColor: "#cbd5e1",
+    borderColor: "#64748b",
+  },
+  smallBtnPressed: { transform: [{ scale: 0.97 }] },
 
   card: {
-    width: 70,
-    height: 100,
+    width: 58,
+    height: 82,
     borderRadius: 16,
     backgroundColor: "#ffffff",
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: "#1b0b24",
     padding: 8,
     justifyContent: "space-between",
+  },
+  cardCompact: {
+    width: 44,
+    height: 62,
+    borderRadius: 10,
+    borderWidth: 2,
+    padding: 5,
   },
   cardBack: {
     backgroundColor: "#6d28d9",
@@ -1305,12 +1398,15 @@ const styles = StyleSheet.create({
   },
   cardBackText: {
     color: "#fff7d6",
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: "900",
   },
-  cardCorner: { fontSize: 14, fontWeight: "900" },
-  cardCornerBottom: { fontSize: 14, fontWeight: "900", alignSelf: "flex-end" },
-  cardCenter: { fontSize: 38, fontWeight: "900", alignSelf: "center" },
+  cardBackTextCompact: { fontSize: 16 },
+  cardCorner: { fontSize: 12, fontWeight: "900" },
+  cardCornerCompact: { fontSize: 10 },
+  cardCornerBottom: { fontSize: 12, fontWeight: "900", alignSelf: "flex-end" },
+  cardCenter: { fontSize: 30, fontWeight: "900", alignSelf: "center" },
+  cardCenterCompact: { fontSize: 22 },
 
   actionBar: {
     marginTop: 12,
@@ -1342,6 +1438,78 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   actionRow: { flexDirection: "row", gap: 10 },
+  centerControls: {
+    width: "100%",
+    alignItems: "center",
+    gap: 6,
+  },
+  centerControlsCompact: {
+    gap: 3,
+  },
+  centerAdvicePill: {
+    width: "100%",
+    alignItems: "center",
+    borderRadius: 999,
+    backgroundColor: "#ffd24a",
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+    paddingVertical: 6,
+  },
+  centerAdvicePillCompact: {
+    borderWidth: 2,
+    paddingVertical: 3,
+  },
+  centerAdviceText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    fontSize: 10,
+  },
+  centerAdviceTextCompact: {
+    fontSize: 9,
+    letterSpacing: 0.2,
+  },
+  centerRow: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  centerRowCompact: {
+    gap: 3,
+  },
+  centerPill: {
+    width: "46%",
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+  },
+  centerPillCompact: {
+    paddingVertical: 2,
+    borderWidth: 2,
+    width: "44%",
+  },
+  centerPillHit: { backgroundColor: "#ff4d8d" },
+  centerPillAlt: { backgroundColor: "#3b82f6" },
+  centerPillStand: { backgroundColor: "#22c55e" },
+  centerPillText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  centerPillTextCompact: {
+    fontSize: 8,
+    letterSpacing: 0.4,
+  },
+  centerPillDisabled: {
+    backgroundColor: "#cbd5e1",
+    borderColor: "#64748b",
+  },
+  centerPillPressed: { transform: [{ scale: 0.97 }] },
 
   actionBtn: {
     flex: 1,
@@ -1459,12 +1627,22 @@ const styles = StyleSheet.create({
     borderColor: "#1b0b24",
     gap: 10,
   },
+  modalCardCompact: {
+    width: "94%",
+    borderRadius: 16,
+    padding: 10,
+    borderWidth: 3,
+    gap: 8,
+  },
 
   betHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+  },
+  betHeaderRowCompact: {
+    gap: 6,
   },
 
   betTitle: {
@@ -1474,6 +1652,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: "uppercase",
   },
+  betTitleCompact: {
+    fontSize: 14,
+    letterSpacing: 0.6,
+  },
   betAmount: {
     color: "#1b0b24",
     fontWeight: "900",
@@ -1481,6 +1663,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
     letterSpacing: 2,
     marginTop: 2,
+  },
+  betAmountCompact: {
+    fontSize: 32,
+    letterSpacing: 1.2,
   },
 
   clearBtn: {
@@ -1495,6 +1681,16 @@ const styles = StyleSheet.create({
     color: "#1b0b24",
     fontWeight: "900",
     letterSpacing: 1,
+  },
+  clearBtnCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  clearBtnTextCompact: {
+    fontSize: 10,
+    letterSpacing: 0.6,
   },
   clearBtnDisabled: {
     backgroundColor: "#cbd5e1",
@@ -1513,12 +1709,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
+  stackAreaCompact: {
+    height: 120,
+    borderWidth: 3,
+  },
   stackHint: {
     color: "#1b0b24",
     fontWeight: "900",
     opacity: 0.65,
     textAlign: "center",
     paddingHorizontal: 20,
+  },
+  stackHintCompact: {
+    fontSize: 10,
   },
   stackWrap: {
     width: "100%",
@@ -1542,6 +1745,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
+  stackChipCompact: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    borderWidth: 3,
+  },
   stackChipRing: {
     width: 50,
     height: 50,
@@ -1552,10 +1761,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  stackChipRingCompact: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+  },
   stackChipText: {
     color: "#1b0b24",
-    fontWeight: "900",
+    fontWeight: "800",
     letterSpacing: 0.5,
+  },
+  stackChipTextCompact: {
+    fontSize: 10,
   },
 
   chipTray: {
@@ -1565,6 +1783,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 6,
     paddingBottom: 2,
+  },
+  chipTrayCompact: {
+    gap: 6,
+    paddingTop: 4,
   },
 
   dealBtn: {
@@ -1576,17 +1798,29 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: "#1b0b24",
   },
+  dealBtnCompact: {
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 3,
+  },
   dealBtnText: {
     color: "#1b0b24",
     fontWeight: "900",
     fontSize: 18,
     letterSpacing: 2,
   },
+  dealBtnTextCompact: {
+    fontSize: 14,
+    letterSpacing: 1.2,
+  },
   betHint: {
     color: "#1b0b24",
     fontWeight: "800",
     opacity: 0.75,
     textAlign: "center",
+  },
+  betHintCompact: {
+    fontSize: 10,
   },
 
   modalBtnDisabled: {
@@ -1602,38 +1836,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-  },
-  chipRing1: {
-    width: "78%",
-    height: "78%",
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderWidth: 3,
-    borderColor: "#1b0b24",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chipRing2: {
-    width: "64%",
-    height: "64%",
-    borderRadius: 999,
-    backgroundColor: "#fff7d6",
-    borderWidth: 3,
-    borderColor: "#1b0b24",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chipValueText: {
-    color: "#1b0b24",
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  chipPixel: {
-    position: "absolute",
-    width: 6,
-    height: 6,
-    backgroundColor: "#fff7d6",
-    borderWidth: 2,
-    borderColor: "#1b0b24",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
 });
+
+
+
+

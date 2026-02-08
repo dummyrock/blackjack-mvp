@@ -3,7 +3,7 @@
     "name": "blackjack-mvp",
     "slug": "blackjack-mvp",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
