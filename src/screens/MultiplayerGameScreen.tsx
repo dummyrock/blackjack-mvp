@@ -484,7 +484,6 @@ export default function MultiplayerGameScreen({
   // ---- Auto-start shared round when everyone is ready (host only) ----
   useEffect(() => {
     if (!table) return;
-
     // If no game yet, allow ready-based start from the first bet window
     if (!table.game) {
       if (!allReady) {
