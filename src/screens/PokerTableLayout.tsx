@@ -190,6 +190,7 @@ export default function PokerTableLayout({
     ? Math.min(tableHeight * 0.5, playerHandCenter.y - tableHeight * 0.2)
     : tableHeight * 0.52;
   const centerX = isCompact ? Math.round(tableWidth / 2) : playerHandCenter.x;
+  const centerTop = centerY - (isCompact ? 60 : 78);
 
   const dealerTotalRow = (
     <View style={[styles.dealerRow, isCompact ? styles.dealerRowCompact : null]}>
@@ -224,7 +225,7 @@ export default function PokerTableLayout({
             style={[
               styles.centerOverlay,
               isCompact ? styles.centerOverlayCompact : null,
-              { top: centerY - (isCompact ? 54 : 70), left: centerX },
+              { top: centerTop, left: centerX },
             ]}
           >
             {centerContent}

@@ -1502,9 +1502,9 @@ const styles = StyleSheet.create({
     borderColor: "#1b0b24",
   },
   centerPillCompact: {
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderWidth: 2,
-    width: "44%",
+    width: "48%",
   },
   centerPillHit: { backgroundColor: "#ff4d8d" },
   centerPillAlt: { backgroundColor: "#3b82f6" },
@@ -1517,8 +1517,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   centerPillTextCompact: {
-    fontSize: 8,
-    letterSpacing: 0.4,
+    fontSize: 9,
+    letterSpacing: 0.5,
   },
   centerPillDisabled: {
     backgroundColor: "#cbd5e1",
