@@ -1,227 +1,362 @@
-// src/screens/PokerTableLayout.tsx
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, Dimensions } from "react-native";
+
+type Seat = {
+  seatIndex: number;
+  playerId?: string;
+  name?: string;
+  isHost?: boolean;
+  isReady?: boolean;
+};
+
+type PlayerHand = {
+  hands: {
+    cards: { rank: string; suit: string }[];
+    bet?: number;
+    isActive?: boolean;
+  }[];
+  totalLabel?: string;
+  isActing?: boolean;
+};
+
+type Props = {
+  seats: Seat[];
+  maxSeats: number;
+  myPlayerId: string;
+  dealerTotalLabel?: string;
+
+  dealerName?: string;
+  dealerCards?: { rank: string; suit: string; hidden?: boolean }[];
+
+  handsByPlayerId: Record<string, PlayerHand | undefined>;
+
+  CardView: (p: { rank: string; suit: string; hidden?: boolean }) => React.ReactElement;
+};
+
+type PositionedSeat = Seat & {
+  rel: number;
+  x: number;
+  y: number;
+};
+
+function cardValue(rank: string) {
+  if (rank === "A") return 11;
+  if (rank === "K" || rank === "Q" || rank === "J") return 10;
+  return Number(rank);
+}
+
+function totalLabelFor(cards: { rank: string; suit: string }[]) {
+  let total = 0;
+  let aces = 0;
+
+  for (const c of cards) {
+    total += cardValue(c.rank);
+    if (c.rank === "A") aces++;
+  }
+
+  while (total > 21 && aces > 0) {
+    total -= 10;
+    aces--;
+  }
+
+  const soft = aces > 0;
+  const low = soft ? total - 10 : total;
+  const high = total;
+
+  if (soft && low !== high) return `${low} / ${high}`;
+  return `${high}`;
+}
 
 export default function PokerTableLayout({
   seats,
-  handsByPlayerId,
-  CardView,
+  maxSeats,
   myPlayerId,
-  dealerName,
-  dealerCards,
-  dealerTotalLabel,
-}: any) {
-  const myPlayer = seats.find((s: any) => s.playerId === myPlayerId);
-  const otherPlayers = seats.filter((s: any) => s.playerId && s.playerId !== myPlayerId);
+  dealerName = "Dealer",
+  dealerCards = [],
+  handsByPlayerId,
+  dealerTotalLabel = "",
+  CardView,
+}: Props) {
+  const youSeatIndex = useMemo(() => {
+    const seat = seats.find((s) => s.playerId === myPlayerId);
+    return seat?.seatIndex ?? 0;
+  }, [seats, myPlayerId]);
 
-  return (
-    <View style={styles.container}>
-      {/* DEALER AT TOP */}
-      <View style={styles.dealerSection}>
-        <Text style={styles.dealerName}>{dealerName}</Text>
-        <View style={styles.cardsRow}>
-          {dealerCards?.map((c: any, idx: number) => (
-            <CardView key={idx} rank={c.rank} suit={c.suit} hidden={c.hidden} />
+  const { width, height } = Dimensions.get("window");
+  const tableSize = Math.min(width - 24, height * 0.62, 820);
+
+  const positionedSeats: PositionedSeat[] = useMemo(() => {
+    const rx = tableSize * 0.43;
+    const ry = tableSize * 0.30;
+
+    const cx = tableSize / 2;
+    const cy = tableSize / 2 + 10;
+
+    return seats.map((s) => {
+      const rel = (s.seatIndex - youSeatIndex + maxSeats) % maxSeats;
+
+      if (rel === 0) {
+        return { ...s, rel, x: cx, y: cy + ry + 48 };
+      }
+
+      const t = rel / maxSeats;
+      const angle = -Math.PI / 2 + t * 2 * Math.PI;
+
+      const x = cx + rx * Math.cos(angle);
+      const y = cy + ry * Math.sin(angle) - 40;
+
+      return { ...s, rel, x, y };
+    });
+  }, [seats, youSeatIndex, maxSeats, tableSize]);
+
+  const youSeat = positionedSeats.find((s) => s.playerId === myPlayerId);
+  const you: PlayerHand = handsByPlayerId[youSeat?.playerId ?? ""] ?? { hands: [] };
+  const isSplit = (you?.hands?.length ?? 0) > 1;
+
+  // Immediate neighbors (visual left/right)
+  const leftNeighbor = positionedSeats.find((s) => s.rel === maxSeats - 1 && s.playerId && s.playerId !== myPlayerId);
+  const rightNeighbor = positionedSeats.find((s) => s.rel === 1 && s.playerId && s.playerId !== myPlayerId);
+
+  function NeighborBlock({ seat, side }: { seat: PositionedSeat; side: "left" | "right" }) {
+    const hand = seat.playerId ? handsByPlayerId[seat.playerId] : undefined;
+    const first = hand?.hands?.[0];
+    const cards = first?.cards ?? [];
+
+    return (
+      <View
+        style={[
+          styles.neighborBlock,
+          side === "left" ? styles.neighborLeft : styles.neighborRight,
+        ]}
+      >
+        <Text style={styles.neighborName} numberOfLines={1}>
+          {seat.name ?? "Player"}
+        </Text>
+
+        <View style={styles.neighborCards}>
+          {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).slice(0, 2).map((c, idx) => (
+            <View key={idx} style={{ marginRight: -16 }}>
+              <CardView rank={c.rank} suit={c.suit} hidden />
+            </View>
           ))}
         </View>
-        {dealerTotalLabel ? <Text style={styles.dealerTotal}>{dealerTotalLabel}</Text> : null}
+      </View>
+    );
+  }
+
+  const dealerTotalRow = (
+    <View style={styles.dealerRow}>
+      <Text style={styles.dealerTitle}>{dealerName}</Text>
+
+      <View style={styles.dealerCards}>
+        {dealerCards.map((c, idx) => (
+          <View key={idx} style={{ marginRight: -14 }}>
+            <CardView rank={c.rank} suit={c.suit} hidden={c.hidden} />
+          </View>
+        ))}
       </View>
 
-      {/* MIDDLE: OTHER PLAYERS ON SIDES */}
-      <View style={styles.middleSection}>
-        {/* LEFT PLAYERS */}
-        {otherPlayers.length > 0 && (
-          <View style={styles.sidePlayersLeft}>
-            {otherPlayers.slice(0, 3).map((s: any) => {
-              const h = handsByPlayerId[s.playerId];
-              if (!h) return null;
+      {dealerTotalLabel ? <Text style={styles.dealerTotalText}>{dealerTotalLabel}</Text> : null}
+    </View>
+  );
+
+  return (
+    <View style={styles.screen}>
+      <View style={[styles.table, { width: tableSize, height: tableSize }]}>
+        <View style={styles.dealerTop}>{dealerTotalRow}</View>
+
+        <View style={styles.centerBadge}>
+          <Text style={styles.centerBadgeText}>BLACKJACK</Text>
+        </View>
+
+        {/* LEFT/RIGHT NEIGHBORS near your hand */}
+        {leftNeighbor ? <NeighborBlock seat={leftNeighbor} side="left" /> : null}
+        {rightNeighbor ? <NeighborBlock seat={rightNeighbor} side="right" /> : null}
+
+        {/* YOU: cards only, with bet + total underneath. Split hands side-by-side */}
+        <View style={styles.youArea}>
+          <View style={[styles.youHandsWrap, isSplit ? styles.youHandsWrapSplit : null]}>
+            {(you?.hands ?? []).map((h, i) => {
+              const total = totalLabelFor(h.cards);
+              const bet = h.bet ?? 0;
+
               return (
-                <View key={s.playerId} style={styles.sidePlayer}>
-                  <Text style={styles.sidePlayerName}>{s.name}</Text>
-                  <View style={styles.sideCardsRow}>
-                    {h.hands[0]?.cards?.map((c: any, j: number) => (
-                      <CardView key={j} rank={c.rank} suit={c.suit} />
-                    )) ?? null}
+                <View
+                  key={i}
+                  style={[
+                    styles.handBlock,
+                    isSplit ? styles.handBlockSplit : null,
+                    h.isActive ? styles.handBlockActive : null,
+                  ]}
+                >
+                  <View style={styles.youCardsRow}>
+                    {h.cards.map((c, idx) => (
+                      <View key={idx} style={[styles.youCardSlot, idx > 0 ? styles.overlap : null]}>
+                        <CardView rank={c.rank} suit={c.suit} />
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={styles.underPill}>
+                    <Text style={styles.underText}>Bet {bet}</Text>
+                    <Text style={styles.underText}>Total {total}</Text>
                   </View>
                 </View>
               );
             })}
-          </View>
-        )}
-
-        {/* RIGHT PLAYERS */}
-        {otherPlayers.length > 3 && (
-          <View style={styles.sidePlayersRight}>
-            {otherPlayers.slice(3).map((s: any) => {
-              const h = handsByPlayerId[s.playerId];
-              if (!h) return null;
-              return (
-                <View key={s.playerId} style={styles.sidePlayer}>
-                  <Text style={styles.sidePlayerName}>{s.name}</Text>
-                  <View style={styles.sideCardsRow}>
-                    {h.hands[0]?.cards?.map((c: any, j: number) => (
-                      <CardView key={j} rank={c.rank} suit={c.suit} />
-                    )) ?? null}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </View>
-
-      {/* YOUR HAND AT BOTTOM */}
-      {myPlayer && (
-        <View style={styles.playerSection}>
-          <Text style={styles.playerName}>{myPlayer.name} (You)</Text>
-          <View style={styles.playerHandsContainer}>
-            {handsByPlayerId[myPlayerId]?.hands?.map((hand: any, i: number) => (
-              <View
-                key={i}
-                style={[
-                  styles.playerHandBox,
-                  hand.isActive && styles.activeHand,
-                ]}
-              >
-                <View style={styles.cardsRow}>
-                  {hand.cards.map((c: any, j: number) => (
-                    <CardView key={j} rank={c.rank} suit={c.suit} />
-                  ))}
-                </View>
-                <Text style={styles.handInfo}>
-                  Bet: {hand.bet}
-                </Text>
-              </View>
-            ))}
           </View>
         </View>
-      )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "space-between",
-    gap: 16,
-  },
-
-  dealerSection: {
+  screen: {
     alignItems: "center",
-    padding: 12,
-    backgroundColor: "#1a0f2e",
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: "#ffd24a",
+    justifyContent: "center",
+    paddingVertical: 10,
   },
 
-  dealerName: {
-    color: "#ffd24a",
-    fontSize: 18,
+  table: {
+    borderRadius: 28,
+    backgroundColor: "#2ee6a6",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+    overflow: "hidden",
+  },
+
+  dealerTop: {
+    position: "absolute",
+    top: 10,
+    left: 12,
+    right: 12,
+    alignItems: "center",
+  },
+  dealerRow: {
+    width: "100%",
+    alignItems: "center",
+  },
+  dealerTitle: {
+    fontSize: 16,
     fontWeight: "900",
+    color: "#1b0b24",
+    letterSpacing: 1,
     marginBottom: 8,
   },
-
-  cardsRow: {
+  dealerCards: {
     flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    marginBottom: 6,
+    alignItems: "center",
   },
-
-  dealerTotal: {
-    color: "#ffe29a",
-    fontSize: 14,
+  dealerTotalText: {
+    marginTop: 6,
+    color: "#000",
     fontWeight: "900",
   },
 
-  middleSection: {
-    flex: 1,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
-  },
-
-  sidePlayersLeft: {
-    justifyContent: "center",
+  centerBadge: {
+    position: "absolute",
+    top: "44%",
+    left: "50%",
+    transform: [{ translateX: -70 }],
+    width: 140,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#fff7d6",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
     alignItems: "center",
-    gap: 10,
-    flex: 1,
+  },
+  centerBadgeText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 1,
   },
 
-  sidePlayersRight: {
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-
-  sidePlayer: {
-    backgroundColor: "#2b0b3a",
-    borderRadius: 14,
+  // Neighbors sit beside you near the bottom
+  neighborBlock: {
+    position: "absolute",
+    bottom: 130,
+    width: 150,
     padding: 10,
-    borderWidth: 2,
-    borderColor: "#ff4d8d",
-    alignItems: "center",
-    minWidth: 120,
-  },
-
-  sidePlayerName: {
-    color: "#fff7d6",
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 6,
-    textAlign: "center",
-  },
-
-  sideCardsRow: {
-    flexDirection: "row",
-    gap: 4,
-  },
-
-  playerSection: {
-    alignItems: "center",
-    padding: 12,
-    backgroundColor: "#1a0f2e",
     borderRadius: 18,
-    borderWidth: 2,
-    borderColor: "#ff4d8d",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+    backgroundColor: "#fff7d6",
+    alignItems: "center",
+    gap: 8,
   },
-
-  playerName: {
-    color: "#ff4d8d",
-    fontSize: 18,
+  neighborLeft: {
+    left: 12,
+  },
+  neighborRight: {
+    right: 12,
+  },
+  neighborName: {
+    color: "#1b0b24",
     fontWeight: "900",
-    marginBottom: 10,
+    letterSpacing: 0.5,
+    maxWidth: "100%",
+  },
+  neighborCards: {
+    flexDirection: "row",
+    alignItems: "center",
   },
 
-  playerHandsContainer: {
+  // === YOU AREA ===
+  youArea: {
+    position: "absolute",
+    bottom: 14,
+    left: 12,
+    right: 12,
+    alignItems: "center",
+  },
+
+  youHandsWrap: {
+    width: "100%",
+    gap: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  youHandsWrapSplit: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+
+  handBlock: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  handBlockSplit: { flex: 1 },
+  handBlockActive: { transform: [{ scale: 1.01 }] },
+
+  youCardsRow: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  youCardSlot: {},
+  overlap: { marginLeft: -18 },
+
+  underPill: {
+    marginTop: 10,
     flexDirection: "row",
     gap: 12,
-    justifyContent: "center",
-    flexWrap: "wrap",
-  },
-
-  playerHandBox: {
-    backgroundColor: "#0a051f",
-    borderRadius: 14,
-    padding: 10,
-    borderWidth: 2,
-    borderColor: "#66666680",
     alignItems: "center",
-  },
-
-  activeHand: {
-    borderColor: "#22c55e",
+    justifyContent: "center",
+    backgroundColor: "#fff7d6",
     borderWidth: 3,
+    borderColor: "#1b0b24",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-
-  handInfo: {
-    color: "#ffe29a",
-    fontSize: 11,
+  underText: {
+    color: "#1b0b24",
     fontWeight: "900",
-    marginTop: 6,
+    letterSpacing: 0.5,
   },
 });

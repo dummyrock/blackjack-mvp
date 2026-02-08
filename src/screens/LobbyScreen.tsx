@@ -61,7 +61,11 @@ function TogglePill({
   );
 }
 
-export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: string) => void }) {
+export default function LobbyScreen({
+  onStartGame,
+}: {
+  onStartGame: (roomCode: string, playerId: string, name: string) => void;
+}) {
   const [playerId, setPlayerId] = useState<string>("");
   const [name, setName] = useState<string>("");
 
@@ -101,9 +105,11 @@ export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: s
   async function onCreate() {
     setError("");
     try {
-      if (!name.trim()) return setError("Enter your name first.");
+      const trimmed = name.trim();
+      if (!trimmed) return setError("Enter your name first.");
       if (!playerId) return setError("Player id not ready yet. Try again.");
-      const code = await createTable(playerId, name.trim());
+
+      const code = await createTable(playerId, trimmed);
       setRoomCode(code);
     } catch (e: any) {
       setError(e?.message ?? "Failed to create table");
@@ -113,11 +119,14 @@ export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: s
   async function onJoin() {
     setError("");
     try {
-      if (!name.trim()) return setError("Enter your name first.");
+      const trimmed = name.trim();
+      if (!trimmed) return setError("Enter your name first.");
       if (!playerId) return setError("Player id not ready yet. Try again.");
+
       const code = roomCodeInput.trim().toUpperCase();
       if (!code) return setError("Enter a room code.");
-      await joinTable(code, playerId, name.trim());
+
+      await joinTable(code, playerId, trimmed);
       setRoomCode(code);
     } catch (e: any) {
       setError(e?.message ?? "Failed to join table");
@@ -166,9 +175,9 @@ export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: s
 
   useEffect(() => {
     if (roomCode && table?.status === "playing") {
-      onStartGame(roomCode);
+      onStartGame(roomCode, playerId, name.trim() || "You");
     }
-  }, [roomCode, table?.status, onStartGame]);
+  }, [roomCode, table?.status, onStartGame, playerId, name]);
 
   return (
     <View style={styles.container}>
@@ -268,7 +277,7 @@ export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: s
                     setError("");
                     try {
                       await startSharedRound(roomCode);
-                      onStartGame(roomCode);
+                      onStartGame(roomCode, playerId, name.trim() || "You");
                     } catch (e: any) {
                       setError(e?.message ?? "Failed to start");
                     }

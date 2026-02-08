@@ -98,7 +98,7 @@ export function dealerStep(state: GameState): GameState {
 }
 
 function settleHand(hand: PlayerHand, dealerCards: Card[]): PlayerHand {
-  if (hand.outcome === "bust") return hand;
+  if (hand.outcome === "bust") return { ...hand, payout: -hand.bet };
 
   const p = handTotal(hand.cards).total;
   const d = handTotal(dealerCards).total;
@@ -244,4 +244,64 @@ export function split(state: GameState): GameState {
   updatedHands.splice(state.currentHand + 1, 0, hand2);
 
   return { ...state2, playerHands: updatedHands };
+}
+
+export function startHand(wager: number, deck?: Card[]): GameState {
+  const shoe = deck || makeShoe(6);
+
+  // Deal 2 to player, 2 to dealer
+  const [pc1, shoe1] = [shoe[0], shoe.slice(1)];
+  const [dc1, shoe2] = [shoe1[0], shoe1.slice(1)];
+  const [pc2, shoe3] = [shoe2[0], shoe2.slice(1)];
+  const [dc2, finalShoe] = [shoe3[0], shoe3.slice(1)];
+
+  const playerCards = [pc1, pc2];
+  const dealerCards = [dc1, dc2];
+
+  const playerHand: PlayerHand = {
+    cards: playerCards,
+    bet: wager,
+    doubled: false,
+    outcome: "playing" as HandOutcome,
+    payout: 0,
+    isSplitHand: false,
+  };
+
+  return {
+    deck: finalShoe,
+    dealer: dealerCards,
+    playerHands: [playerHand],
+    currentHand: 0,
+    phase: "player",
+    revealDealer: false,
+    baseBet: wager,
+  };
+}
+
+export function canDouble(state: GameState): boolean {
+  if (state.phase !== "player") return false;
+
+  const hand = state.playerHands[state.currentHand];
+  if (!hand || hand.outcome !== "playing") return false;
+
+  // Can double on first 2 cards, or after split if 2 cards total
+  return hand.cards.length === 2;
+}
+
+export function canSplit(state: GameState): boolean {
+  if (state.phase !== "player") return false;
+
+  const hand = state.playerHands[state.currentHand];
+  if (!hand || hand.outcome !== "playing" || hand.cards.length !== 2) return false;
+
+  const ranks = [hand.cards[0].rank, hand.cards[1].rank];
+  // Can split if same rank or both 10-value cards
+  return (
+    ranks[0] === ranks[1] ||
+    (cardValue(ranks[0] as Rank) === 10 && cardValue(ranks[1] as Rank) === 10)
+  );
+}
+
+export function totalPayout(state: GameState): number {
+  return state.playerHands.reduce((sum, hand) => sum + hand.payout, 0);
 }
