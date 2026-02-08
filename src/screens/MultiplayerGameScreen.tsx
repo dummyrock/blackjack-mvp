@@ -260,6 +260,7 @@ export default function MultiplayerGameScreen({
   const [intermissionEndsAt, setIntermissionEndsAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState<number>(Date.now());
   const openedIntermissionRef = useRef<number | null>(null);
+  const intermissionTopupRef = useRef<number | null>(null);
   const bettingPhaseDealtRef = useRef<boolean>(false);
 
   const activePhase = table?.game?.phase ?? state?.phase ?? null;
@@ -306,6 +307,21 @@ export default function MultiplayerGameScreen({
     const id = setInterval(() => setNowTick(Date.now()), 50);
     return () => clearInterval(id);
   }, [sharedIntermissionEndsAt]);
+
+  // ---- Auto top-up if bankroll hits 0 during intermission (at 5s remaining) ----
+  useEffect(() => {
+    const endsAt = sharedIntermissionEndsAt;
+    if (!endsAt) return;
+    if (table?.game && table.game.phase !== "intermission") return;
+    const left = endsAt - nowTick;
+    if (left <= 0 || left > 5000) return;
+    if (intermissionTopupRef.current === endsAt) return;
+    if (bankroll > 0) return;
+
+    safeSetBankroll((b) => b + 100);
+    showBankrollDelta(100);
+    intermissionTopupRef.current = endsAt;
+  }, [sharedIntermissionEndsAt, nowTick, table?.game?.phase, bankroll]);
 
   function resetSession() {
     setBankroll(STARTING_BANKROLL);
@@ -841,6 +857,11 @@ export default function MultiplayerGameScreen({
     const h = sharedPlayer.hands[sharedPlayer.currentHand];
     return h?.outcome === "playing";
   }, [sharedPlayer]);
+  const sharedCurrentHandBet = useMemo(() => {
+    if (!sharedPlayer) return 0;
+    const h = sharedPlayer.hands[sharedPlayer.currentHand];
+    return h?.bet ?? 0;
+  }, [sharedPlayer]);
 
   const sharedCanDouble = useMemo(() => {
     if (!table?.game) return false;
@@ -862,6 +883,7 @@ export default function MultiplayerGameScreen({
     const [r1, r2] = [h.cards[0].rank, h.cards[1].rank];
     return r1 === r2;
   }, [table, sharedPlayerIndex, sharedPlayer]);
+  const effectiveHandBet = table?.game ? sharedCurrentHandBet : currentHandBet;
 
   const sharedIsMyTurn =
     !!table?.game &&
@@ -914,13 +936,6 @@ export default function MultiplayerGameScreen({
             <View style={[styles.topBarActions, isCompact ? styles.topBarActionsCompact : null]}>
               <Pressable onPress={exitToLobby} style={[styles.smallBtn, isCompact ? styles.smallBtnCompact : null]}>
                 <Text style={[styles.smallBtnText, isCompact ? styles.smallBtnTextCompact : null]}>Lobby</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={resetSession}
-                style={[styles.smallBtn, isCompact ? styles.smallBtnCompact : null]}
-              >
-                <Text style={[styles.smallBtnText, isCompact ? styles.smallBtnTextCompact : null]}>Reset</Text>
               </Pressable>
 
               <Pressable
@@ -986,7 +1001,7 @@ export default function MultiplayerGameScreen({
                 <Pressable
                     onPress={() => {
                       if (table?.game) {
-                        safeSetReserved((r) => r + currentHandBet);
+                        safeSetReserved((r) => r + sharedCurrentHandBet);
                         playerAction(roomCode, myPlayerId, "double").catch((e) => console.warn("playerAction double", e));
                         return;
                       }
@@ -997,20 +1012,20 @@ export default function MultiplayerGameScreen({
                     }}
                     disabled={
                       actionLocked ||
-                      (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                      (table?.game ? !sharedCanDouble || availableBankroll < effectiveHandBet : !canDoubleWithBankroll)
                     }
                     style={({ pressed }) => [
                       styles.centerPill,
                       styles.centerPillAlt,
                       isCompact ? styles.centerPillCompact : null,
                       actionLocked ||
-                      (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                      (table?.game ? !sharedCanDouble || availableBankroll < effectiveHandBet : !canDoubleWithBankroll)
                         ? styles.centerPillDisabled
                         : null,
                       pressed &&
                       !(
                         actionLocked ||
-                        (table?.game ? !sharedCanDouble || availableBankroll < currentHandBet : !canDoubleWithBankroll)
+                        (table?.game ? !sharedCanDouble || availableBankroll < effectiveHandBet : !canDoubleWithBankroll)
                       )
                         ? styles.centerPillPressed
                         : null,
@@ -1022,7 +1037,7 @@ export default function MultiplayerGameScreen({
                   <Pressable
                     onPress={() => {
                       if (table?.game) {
-                        safeSetReserved((r) => r + currentHandBet);
+                        safeSetReserved((r) => r + sharedCurrentHandBet);
                         playerAction(roomCode, myPlayerId, "split").catch((e) => console.warn("playerAction split", e));
                         return;
                       }
@@ -1033,20 +1048,20 @@ export default function MultiplayerGameScreen({
                     }}
                     disabled={
                       actionLocked ||
-                      (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                      (table?.game ? !sharedCanSplit || availableBankroll < effectiveHandBet : !canSplitWithBankroll)
                     }
                     style={({ pressed }) => [
                       styles.centerPill,
                       styles.centerPillAlt,
                       isCompact ? styles.centerPillCompact : null,
                       actionLocked ||
-                      (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                      (table?.game ? !sharedCanSplit || availableBankroll < effectiveHandBet : !canSplitWithBankroll)
                         ? styles.centerPillDisabled
                         : null,
                       pressed &&
                       !(
                         actionLocked ||
-                        (table?.game ? !sharedCanSplit || availableBankroll < currentHandBet : !canSplitWithBankroll)
+                        (table?.game ? !sharedCanSplit || availableBankroll < effectiveHandBet : !canSplitWithBankroll)
                       )
                         ? styles.centerPillPressed
                         : null,
