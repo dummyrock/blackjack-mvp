@@ -732,7 +732,7 @@ export default function MultiplayerGameScreen({
     const profit = me.hands.reduce((sum, h) => {
       if (h.outcome === "bust") return sum - h.bet;
       const pTotal = handTotal(h.cards).total;
-      const naturalBJ = !h.isSplitHand && h.cards.length === 2 && pTotal === 21;
+      const naturalBJ = h.outcome === "blackjack";
 
       if (naturalBJ) {
         if (dealerBJ) return sum;

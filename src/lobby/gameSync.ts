@@ -57,13 +57,25 @@ export async function startSharedRound(roomCode: string) {
     const dealer = [dealOne(), dealOne()];
     const dealerBlackjack = isBlackjack(dealer);
 
+    const playersWithBlackjack = players.map((p) => {
+      const first = p.hands[0];
+      if (!first) return p;
+      if (!isBlackjack(first.cards)) return p;
+      return {
+        ...p,
+        hands: [{ ...first, outcome: "blackjack" as const }],
+        done: true,
+      };
+    });
+
+    const nextActingIndex = playersWithBlackjack.findIndex((p) => !p.done);
     const game: SharedGame = {
-      phase: dealerBlackjack ? "dealer" : "round_player",
+      phase: dealerBlackjack || nextActingIndex === -1 ? "dealer" : "round_player",
       shoe: deck,
       dealer,
       revealDealer: false,
-      players,
-      actingPlayerIndex: 0,
+      players: playersWithBlackjack,
+      actingPlayerIndex: nextActingIndex === -1 ? 0 : nextActingIndex,
       intermissionEndsAt: null,
     };
 
