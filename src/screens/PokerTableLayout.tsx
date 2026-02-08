@@ -123,7 +123,9 @@ export default function PokerTableLayout({
   function NeighborBlock({ seat, side }: { seat: PositionedSeat; side: "left" | "right" }) {
     const hand = seat.playerId ? handsByPlayerId[seat.playerId] : undefined;
     const hands = hand?.hands ?? [];
-    const fallbackHands = [{ cards: [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }] }];
+    const fallbackHands: PlayerHand["hands"] = [
+      { cards: [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }], isActive: false },
+    ];
     const renderHands = hands.length ? hands : fallbackHands;
 
     return (
