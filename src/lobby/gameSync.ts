@@ -9,6 +9,7 @@ import {
   doubleDown,
   split as splitFn,
   dealerStep,
+  isBlackjack,
 } from "../engine/blackjack";
 
 type Action = "hit" | "stand" | "double" | "split";
@@ -42,7 +43,7 @@ export async function startSharedRound(roomCode: string) {
       hands: [
         {
           cards: [dealOne(), dealOne()],
-          bet: 1,
+          bet: s.bet ?? 1,
           doubled: false,
           outcome: "playing" as const,
           payout: 0,
@@ -54,9 +55,10 @@ export async function startSharedRound(roomCode: string) {
     }));
 
     const dealer = [dealOne(), dealOne()];
+    const dealerBlackjack = isBlackjack(dealer);
 
     const game: SharedGame = {
-      phase: "round_player",
+      phase: dealerBlackjack ? "dealer" : "round_player",
       shoe: deck,
       dealer,
       revealDealer: false,
@@ -110,6 +112,14 @@ export async function playerAction(roomCode: string, playerId: string, action: A
     p.currentHand = next.currentHand;
     game.shoe = next.deck;
 
+    const current = p.hands[p.currentHand];
+    if (!current || current.outcome !== "playing") {
+      const nextHandIdx = p.hands.findIndex((h, i) => i > p.currentHand && h.outcome === "playing");
+      if (nextHandIdx !== -1) {
+        p.currentHand = nextHandIdx;
+      }
+    }
+
     const stillPlaying = p.hands.some((h) => h.outcome === "playing");
     if (!stillPlaying) p.done = true;
 
@@ -121,7 +131,7 @@ export async function playerAction(roomCode: string, playerId: string, action: A
         game.actingPlayerIndex = nextIdx;
       } else {
         game.phase = "dealer";
-        game.revealDealer = true;
+        game.revealDealer = false;
       }
     }
 
@@ -141,6 +151,13 @@ export async function hostDealerStep(roomCode: string, hostId: string) {
 
     const game = table.game;
     if (!game || game.phase !== "dealer") return;
+
+    // First step in dealer phase: just reveal the hole card
+    if (!game.revealDealer) {
+      game.revealDealer = true;
+      tx.update(ref, { game });
+      return;
+    }
 
     const temp: GameState = {
       deck: game.shoe,

@@ -209,8 +209,7 @@ export function split(state: GameState): GameState {
 
   // Check if cards can be split
   const ranks = [hand.cards[0].rank, hand.cards[1].rank];
-  const canSplit = ranks[0] === ranks[1] ||
-    (cardValue(ranks[0] as Rank) === 10 && cardValue(ranks[1] as Rank) === 10);
+  const canSplit = ranks[0] === ranks[1];
 
   if (!canSplit) return state;
 
@@ -295,11 +294,8 @@ export function canSplit(state: GameState): boolean {
   if (!hand || hand.outcome !== "playing" || hand.cards.length !== 2) return false;
 
   const ranks = [hand.cards[0].rank, hand.cards[1].rank];
-  // Can split if same rank or both 10-value cards
-  return (
-    ranks[0] === ranks[1] ||
-    (cardValue(ranks[0] as Rank) === 10 && cardValue(ranks[1] as Rank) === 10)
-  );
+  // Can split only if same rank
+  return ranks[0] === ranks[1];
 }
 
 export function totalPayout(state: GameState): number {

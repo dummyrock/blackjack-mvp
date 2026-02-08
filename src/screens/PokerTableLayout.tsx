@@ -124,6 +124,7 @@ export default function PokerTableLayout({
     const hand = seat.playerId ? handsByPlayerId[seat.playerId] : undefined;
     const first = hand?.hands?.[0];
     const cards = first?.cards ?? [];
+    const totalLabel = cards.length ? totalLabelFor(cards) : "";
 
     return (
       <View
@@ -137,12 +138,21 @@ export default function PokerTableLayout({
         </Text>
 
         <View style={styles.neighborCards}>
-          {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).slice(0, 2).map((c, idx) => (
-            <View key={idx} style={{ marginRight: -16 }}>
-              <CardView rank={c.rank} suit={c.suit} hidden />
-            </View>
-          ))}
+          {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).map((c, idx) => {
+            const isPlaceholder = c.rank === "?" && c.suit === "?";
+            return (
+              <View key={idx} style={{ marginRight: -16 }}>
+                <CardView rank={c.rank} suit={c.suit} hidden={isPlaceholder} />
+              </View>
+            );
+          })}
         </View>
+
+        {totalLabel ? (
+          <View style={styles.underPill}>
+            <Text style={styles.underText}>Total {totalLabel}</Text>
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -332,7 +342,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   handBlockSplit: { flex: 1 },
-  handBlockActive: { transform: [{ scale: 1.01 }] },
+  handBlockActive: {
+    transform: [{ scale: 1.01 }],
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: "#facc15",
+    padding: 4,
+    backgroundColor: "rgba(250, 204, 21, 0.08)",
+    shadowColor: "#facc15",
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 10,
+  },
 
   youCardsRow: {
     width: "100%",

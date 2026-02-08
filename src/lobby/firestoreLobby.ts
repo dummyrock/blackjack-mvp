@@ -15,6 +15,7 @@ export type Seat = {
   name: string | null;
   isReady: boolean;
   isHost: boolean;
+  bet?: number;
 
   // per-player advice toggle (basic strategy helper)
   adviceEnabled: boolean;
@@ -72,6 +73,7 @@ function emptySeats(hostId: string, hostName: string): Seat[] {
     name: i === 0 ? hostName : null,
     isReady: i === 0 ? true : false,
     isHost: i === 0,
+    bet: 0,
     adviceEnabled: false,
   }));
 }
@@ -121,6 +123,7 @@ export async function joinTable(roomCode: string, playerId: string, name: string
           name,
           isReady: false,
           isHost: false,
+          bet: 0,
           adviceEnabled: false,
         }
       : s
@@ -145,6 +148,7 @@ export async function leaveTable(roomCode: string, playerId: string) {
           name: null,
           isReady: false,
           isHost: false,
+          bet: 0,
           adviceEnabled: false,
         }
       : s
@@ -178,6 +182,21 @@ export async function setReady(roomCode: string, playerId: string, isReady: bool
 
   const seats: Seat[] = table.seats.map((s) =>
     s.playerId === playerId ? { ...s, isReady } : s
+  );
+
+  await updateDoc(ref, { seats });
+}
+
+export async function setReadyAndBet(roomCode: string, playerId: string, isReady: boolean, bet: number) {
+  const ref = doc(db, "tables", roomCode);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
+
+  const seats: Seat[] = table.seats.map((s) =>
+    s.playerId === playerId ? { ...s, isReady, bet } : s
   );
 
   await updateDoc(ref, { seats });
