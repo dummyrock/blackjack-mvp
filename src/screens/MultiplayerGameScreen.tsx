@@ -339,7 +339,7 @@ export default function MultiplayerGameScreen({
 
     const next = shoeRef.current ? startHand(wager, shoeRef.current) : startHand(wager);
     const dealerBlackjack = next.dealer.length === 2 && handTotal(next.dealer).total === 21;
-    const nextState = dealerBlackjack ? { ...next, phase: "dealer", revealDealer: false } : next;
+    const nextState: GameState = dealerBlackjack ? { ...next, phase: "dealer", revealDealer: false } : next;
     shoeRef.current = nextState.deck;
 
     payoutCreditedRef.current = false;
