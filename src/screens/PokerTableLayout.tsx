@@ -134,12 +134,15 @@ export default function PokerTableLayout({
       { cards: [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }], isActive: false },
     ];
     const renderHands = hands.length ? hands : fallbackHands;
+    const isSplitHand = renderHands.length > 1;
+    const useCompactSplit = isCompact && isSplitHand;
 
     return (
       <View
         style={[
           styles.neighborBlock,
           isCompact ? styles.neighborBlockCompact : null,
+          useCompactSplit ? styles.neighborBlockCompactSplit : null,
           side === "left" ? styles.neighborLeft : styles.neighborRight,
         ]}
       >
@@ -147,18 +150,25 @@ export default function PokerTableLayout({
           {seat.name ?? "Player"}
         </Text>
 
-        <View style={styles.neighborHandsWrap}>
+        <View style={[styles.neighborHandsWrap, useCompactSplit ? styles.neighborHandsWrapSplitCompact : null]}>
           {renderHands.map((h, handIdx) => {
             const cards = h.cards ?? [];
             const totalLabel = cards.length ? totalLabelFor(cards) : "";
             const isActive = h.isActive === true;
             return (
-              <View key={handIdx} style={[styles.neighborHandBox, isActive ? styles.neighborHandActive : null]}>
-                <View style={styles.neighborCards}>
+              <View
+                key={handIdx}
+                style={[
+                  styles.neighborHandBox,
+                  isActive ? styles.neighborHandActive : null,
+                  useCompactSplit ? styles.neighborHandBoxSplitCompact : null,
+                ]}
+              >
+                <View style={[styles.neighborCards, useCompactSplit ? styles.neighborCardsSplitCompact : null]}>
                   {(cards.length ? cards : [{ rank: "?", suit: "?" }, { rank: "?", suit: "?" }]).map((c, idx) => {
                     const isPlaceholder = c.rank === "?" && c.suit === "?";
                     return (
-                      <View key={idx} style={{ marginRight: -16 }}>
+                      <View key={idx} style={{ marginRight: useCompactSplit ? -12 : -16 }}>
                         <CardView rank={c.rank} suit={c.suit} hidden={isPlaceholder} />
                       </View>
                     );
@@ -166,8 +176,14 @@ export default function PokerTableLayout({
                 </View>
 
                 {totalLabel ? (
-                  <View style={styles.neighborPill}>
-                    <Text style={[styles.neighborPillText, isCompact ? styles.neighborPillTextCompact : null]}>
+                  <View style={[styles.neighborPill, useCompactSplit ? styles.neighborPillSplitCompact : null]}>
+                    <Text
+                      style={[
+                        styles.neighborPillText,
+                        isCompact ? styles.neighborPillTextCompact : null,
+                        useCompactSplit ? styles.neighborPillTextSplitCompact : null,
+                      ]}
+                    >
                       Total {totalLabel}
                     </Text>
                   </View>
@@ -428,6 +444,10 @@ const styles = StyleSheet.create({
     padding: 8,
     borderWidth: 3,
   },
+  neighborBlockCompactSplit: {
+    width: 150,
+    padding: 6,
+  },
   neighborLeft: {
     left: 12,
   },
@@ -447,6 +467,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  neighborCardsSplitCompact: {
+    transform: [{ scale: 0.78 }],
+  },
   neighborHandsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -454,9 +477,18 @@ const styles = StyleSheet.create({
     gap: 6,
     width: "100%",
   },
+  neighborHandsWrapSplitCompact: {
+    flexWrap: "nowrap",
+    justifyContent: "space-between",
+    gap: 4,
+  },
   neighborHandBox: {
     alignItems: "center",
     gap: 6,
+  },
+  neighborHandBoxSplitCompact: {
+    gap: 4,
+    maxWidth: 70,
   },
   neighborHandActive: {
     borderRadius: 12,
@@ -477,6 +509,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
+  neighborPillSplitCompact: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 2,
+  },
   neighborPillText: {
     color: "#1b0b24",
     fontWeight: "900",
@@ -485,6 +522,10 @@ const styles = StyleSheet.create({
   },
   neighborPillTextCompact: {
     fontSize: 10,
+  },
+  neighborPillTextSplitCompact: {
+    fontSize: 9,
+    letterSpacing: 0.2,
   },
 
   // === YOU AREA ===
