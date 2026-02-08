@@ -246,7 +246,7 @@ export function split(state: GameState): GameState {
 }
 
 export function startHand(wager: number, deck?: Card[]): GameState {
-  const shoe = deck || makeShoe(6);
+  const shoe = deck || makeShoe(4);
 
   // Deal 2 to player, 2 to dealer
   const [pc1, shoe1] = [shoe[0], shoe.slice(1)];

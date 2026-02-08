@@ -34,6 +34,7 @@ import {
 import { setReadyAndBet, resetAllReady, leaveTable } from "../lobby/firestoreLobby";
 import PokerTableLayout from "./PokerTableLayout";
 import { subscribeTable, TableDoc } from "../lobby/firestoreLobby";
+import { stopBackgroundMusic } from "../audio/backgroundMusic";
 
 /** ---------- Card UI ---------- */
 function suitColor(suit: string) {
@@ -120,8 +121,7 @@ function chipColorForValue(v: number) {
   return "#f97316";
 }
 
-const BG_MUSIC = require("../../assets/sounds/bg-loop.wav");
-const CARD_FLIP_SOUND = require("../../assets/sounds/card-flip.wav");
+const CARD_FLIP_SOUND = require("../../assets/sounds/card-flip.mp3");
 
 export default function MultiplayerGameScreen({
   roomCode,
@@ -170,6 +170,7 @@ export default function MultiplayerGameScreen({
     if (roomCode && myPlayerId) {
       leaveTable(roomCode, myPlayerId).catch((err) => console.warn("leaveTable failed", err));
     }
+    stopBackgroundMusic().catch(() => undefined);
     onExit();
   };
 
@@ -195,12 +196,12 @@ export default function MultiplayerGameScreen({
   const deltaHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- Audio ----
-  const bgSoundRef = useRef<Audio.Sound | null>(null);
   const flipSoundRef = useRef<Audio.Sound | null>(null);
-  const audioUnlockedRef = useRef<boolean>(false);
   const flipCooldownRef = useRef<number>(0);
   const prevCardCountRef = useRef<number>(0);
   const cardCountReadyRef = useRef<boolean>(false);
+  const prevRevealRef = useRef<boolean>(false);
+  const revealReadyRef = useRef<boolean>(false);
 
   function showBankrollDelta(profit: number) {
     if (profit === 0) {
@@ -258,18 +259,12 @@ export default function MultiplayerGameScreen({
           shouldDuckAndroid: true,
         });
 
-        const [bg, flip] = await Promise.all([
-          Audio.Sound.createAsync(BG_MUSIC, { isLooping: true, volume: 0.25, shouldPlay: false }),
-          Audio.Sound.createAsync(CARD_FLIP_SOUND, { volume: 0.6, shouldPlay: false }),
-        ]);
+        const flip = await Audio.Sound.createAsync(CARD_FLIP_SOUND, { volume: 0.6, shouldPlay: false });
 
         if (!mounted) {
-          await bg.sound.unloadAsync();
           await flip.sound.unloadAsync();
           return;
         }
-
-        bgSoundRef.current = bg.sound;
         flipSoundRef.current = flip.sound;
       } catch (e) {
         console.warn("audio init failed", e);
@@ -278,22 +273,19 @@ export default function MultiplayerGameScreen({
 
     return () => {
       mounted = false;
-      bgSoundRef.current?.unloadAsync();
       flipSoundRef.current?.unloadAsync();
     };
   }, []);
-
-  const ensureAudio = () => {
-    if (audioUnlockedRef.current) return;
-    audioUnlockedRef.current = true;
-    bgSoundRef.current?.playAsync().catch(() => undefined);
-  };
 
   const playFlip = () => {
     const now = Date.now();
     if (now - flipCooldownRef.current < 120) return;
     flipCooldownRef.current = now;
-    flipSoundRef.current?.replayAsync().catch(() => undefined);
+    const sound = flipSoundRef.current;
+    if (!sound) return;
+    sound
+      .setStatusAsync({ positionMillis: 200, shouldPlay: true })
+      .catch(() => undefined);
   };
 
   // ---- BET MODAL ----
@@ -585,6 +577,11 @@ export default function MultiplayerGameScreen({
     }));
   }, [state, table, showBettingState]);
 
+  const dealerRevealed = useMemo(() => {
+    if (table?.game) return !!table.game.revealDealer;
+    return !!state?.revealDealer;
+  }, [table?.game?.revealDealer, state?.revealDealer]);
+
   const cardCount = useMemo(() => {
     if (showBettingState) return 0;
     if (table?.game) {
@@ -619,6 +616,19 @@ export default function MultiplayerGameScreen({
     }
     prevCardCountRef.current = cardCount;
   }, [cardCount]);
+
+  useEffect(() => {
+    if (!revealReadyRef.current) {
+      prevRevealRef.current = dealerRevealed;
+      revealReadyRef.current = true;
+      return;
+    }
+
+    if (!prevRevealRef.current && dealerRevealed) {
+      playFlip();
+    }
+    prevRevealRef.current = dealerRevealed;
+  }, [dealerRevealed]);
 
   // ---- Auto-start shared round when everyone is ready (host only) ----
   useEffect(() => {
@@ -994,7 +1004,7 @@ export default function MultiplayerGameScreen({
     );
 
   return (
-    <SafeAreaView style={styles.container} onTouchStart={ensureAudio}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.gameContent}>
             {/* TOP BAR */}
         <View style={[styles.topBar, isCompact ? styles.topBarCompact : null]}>

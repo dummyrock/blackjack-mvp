@@ -12,6 +12,7 @@ import {
   resetAllReady,
 } from "../lobby/firestoreLobby";
 import { getOrCreatePlayerId } from "../lobby/identity";
+import { startBackgroundMusic } from "../audio/backgroundMusic";
 
 function Btn({
   label,
@@ -277,6 +278,7 @@ export default function LobbyScreen({
                   onPress={async () => {
                     setError("");
                     try {
+                      startBackgroundMusic().catch(() => undefined);
                       await startTable(roomCode);
                       await resetAllReady(roomCode);
                       onStartGame(roomCode, playerId, name.trim() || "You");

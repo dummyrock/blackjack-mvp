@@ -28,7 +28,7 @@ export async function startSharedRound(roomCode: string) {
 
     if (seated.length === 0) throw new Error("No players seated");
 
-    let deck = makeShoe(6);
+    let deck = makeShoe(4);
 
     const dealOne = () => {
       const card = deck[0];
