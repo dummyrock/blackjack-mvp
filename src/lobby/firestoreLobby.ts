@@ -7,6 +7,7 @@ import {
   getDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import type { Card, PlayerHand } from "../engine/blackjack";
 
 export type Seat = {
   seatIndex: number;
@@ -14,6 +15,39 @@ export type Seat = {
   name: string | null;
   isReady: boolean;
   isHost: boolean;
+
+  // per-player advice toggle (basic strategy helper)
+  adviceEnabled: boolean;
+};
+
+export type SharedGamePhase =
+  | "betting"
+  | "round_player"
+  | "dealer"
+  | "settled"
+  | "intermission";
+
+export type SharedGame = {
+  phase: SharedGamePhase;
+
+  shoe: Card[];
+  dealer: Card[];
+
+  // reveal dealer hole card once dealer plays / settled / intermission
+  revealDealer?: boolean;
+
+  players: {
+    playerId: string;
+    name: string;
+    hands: PlayerHand[];
+    currentHand: number;
+    done: boolean;
+  }[];
+
+  actingPlayerIndex: number;
+
+  // synced countdown window after a round ends
+  intermissionEndsAt?: number | null;
 };
 
 export type TableDoc = {
@@ -21,6 +55,7 @@ export type TableDoc = {
   hostId: string;
   status: "lobby" | "playing";
   seats: Seat[];
+  game: SharedGame | null;
 };
 
 function makeRoomCode(len = 6) {
@@ -37,6 +72,7 @@ function emptySeats(hostId: string, hostName: string): Seat[] {
     name: i === 0 ? hostName : null,
     isReady: i === 0 ? true : false,
     isHost: i === 0,
+    adviceEnabled: false,
   }));
 }
 
@@ -49,6 +85,7 @@ export async function createTable(hostId: string, hostName: string) {
     hostId,
     status: "lobby",
     seats: emptySeats(hostId, hostName),
+    game: null,
   };
 
   await setDoc(ref, data);
@@ -67,18 +104,25 @@ export async function joinTable(roomCode: string, playerId: string, name: string
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error("Room not found");
 
-  const table = snap.data() as TableDoc;
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
 
-  // already seated?
   const already = table.seats.find((s) => s.playerId === playerId);
   if (already) return;
 
   const open = table.seats.find((s) => !s.playerId);
   if (!open) throw new Error("Table is full");
 
-  const seats = table.seats.map((s) =>
+  const seats: Seat[] = table.seats.map((s) =>
     s.seatIndex === open.seatIndex
-      ? { ...s, playerId, name, isReady: false, isHost: false }
+      ? {
+          ...s,
+          playerId,
+          name,
+          isReady: false,
+          isHost: false,
+          adviceEnabled: false,
+        }
       : s
   );
 
@@ -90,15 +134,22 @@ export async function leaveTable(roomCode: string, playerId: string) {
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
 
-  const table = snap.data() as TableDoc;
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
 
-  const seats = table.seats.map((s) =>
+  const seats: Seat[] = table.seats.map((s) =>
     s.playerId === playerId
-      ? { ...s, playerId: null, name: null, isReady: false, isHost: false }
+      ? {
+          ...s,
+          playerId: null,
+          name: null,
+          isReady: false,
+          isHost: false,
+          adviceEnabled: false,
+        }
       : s
   );
 
-  // If host leaves, we won't rehost yet (MVP). Later we can auto-assign a new host.
   await updateDoc(ref, { seats });
 }
 
@@ -107,11 +158,56 @@ export async function toggleReady(roomCode: string, playerId: string) {
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
 
-  const table = snap.data() as TableDoc;
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
 
-  const seats = table.seats.map((s) =>
+  const seats: Seat[] = table.seats.map((s) =>
     s.playerId === playerId ? { ...s, isReady: !s.isReady } : s
   );
 
   await updateDoc(ref, { seats });
+}
+
+/**
+ * Toggle basic-strategy advice per player.
+ * Permissions:
+ *  - player can toggle themselves
+ *  - host can toggle anyone
+ */
+export async function toggleAdvice(
+  roomCode: string,
+  targetPlayerId: string,
+  enabled: boolean,
+  actorPlayerId: string
+) {
+  const ref = doc(db, "tables", roomCode);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
+
+  const actorSeat = table.seats.find((s) => s.playerId === actorPlayerId);
+  if (!actorSeat) throw new Error("You are not seated.");
+
+  const actorIsHost = actorSeat.isHost === true;
+  const actorIsSelf = actorPlayerId === targetPlayerId;
+
+  if (!actorIsHost && !actorIsSelf) {
+    throw new Error("Only the host can change other players.");
+  }
+
+  const targetSeat = table.seats.find((s) => s.playerId === targetPlayerId);
+  if (!targetSeat) throw new Error("Target player not seated.");
+
+  const seats: Seat[] = table.seats.map((s) =>
+    s.playerId === targetPlayerId ? { ...s, adviceEnabled: enabled } : s
+  );
+
+  await updateDoc(ref, { seats });
+}
+
+export async function startTable(roomCode: string) {
+  const ref = doc(db, "tables", roomCode);
+  await updateDoc(ref, { status: "playing" });
 }

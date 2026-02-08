@@ -7,11 +7,20 @@ import {
   toggleReady,
   leaveTable,
   TableDoc,
-  startTable,
+  toggleAdvice,
 } from "../lobby/firestoreLobby";
 import { getOrCreatePlayerId } from "../lobby/identity";
+import { startSharedRound } from "../lobby/gameSync";
 
-function Btn({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+function Btn({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -27,11 +36,32 @@ function Btn({ label, onPress, disabled }: { label: string; onPress: () => void;
   );
 }
 
-export default function LobbyScreen({
-  onStartGame,
+function TogglePill({
+  on,
+  onPress,
+  disabled,
 }: {
-  onStartGame: (roomCode: string) => void;
+  on: boolean;
+  onPress: () => void;
+  disabled?: boolean;
 }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.pill,
+        on ? styles.pillOn : styles.pillOff,
+        disabled ? styles.pillDisabled : null,
+        pressed && !disabled ? styles.pillPressed : null,
+      ]}
+    >
+      <Text style={styles.pillText}>{on ? "Advice: ON" : "Advice: OFF"}</Text>
+    </Pressable>
+  );
+}
+
+export default function LobbyScreen({ onStartGame }: { onStartGame: (roomCode: string) => void }) {
   const [playerId, setPlayerId] = useState<string>("");
   const [name, setName] = useState<string>("");
 
@@ -41,7 +71,6 @@ export default function LobbyScreen({
   const [table, setTable] = useState<TableDoc | null>(null);
   const [error, setError] = useState<string>("");
 
-  // init local player id
   useEffect(() => {
     (async () => {
       const id = await getOrCreatePlayerId();
@@ -49,7 +78,6 @@ export default function LobbyScreen({
     })();
   }, []);
 
-  // subscribe to current room
   useEffect(() => {
     if (!roomCode) return;
     const unsub = subscribeTable(roomCode, setTable);
@@ -67,7 +95,6 @@ export default function LobbyScreen({
   }, [table, youSeat]);
 
   const inviteMessage = useMemo(() => {
-    // For now, share a simple code. Deep links can come next.
     return `Join my Blackjack table!\nRoom code: ${roomCode}\n\nOpen the app → Join → enter the code.`;
   }, [roomCode]);
 
@@ -104,25 +131,39 @@ export default function LobbyScreen({
 
   async function onToggleReady() {
     if (!roomCode || !playerId) return;
-    await toggleReady(roomCode, playerId);
+    try {
+      await toggleReady(roomCode, playerId);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to toggle ready");
+    }
+  }
+
+  async function onToggleAdvice(targetPlayerId: string, enabled: boolean) {
+    if (!roomCode || !playerId) return;
+    try {
+      await toggleAdvice(roomCode, targetPlayerId, enabled, playerId);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to toggle advice");
+    }
   }
 
   async function onLeave() {
     if (!roomCode || !playerId) return;
-    await leaveTable(roomCode, playerId);
-    setRoomCode("");
-    setTable(null);
+    try {
+      await leaveTable(roomCode, playerId);
+      setRoomCode("");
+      setTable(null);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to leave table");
+    }
   }
 
   function startEnabled() {
     if (!table) return false;
-    // MVP rule: allow host to start if at least 1 player seated (you)
-    // Change to >=2 if you want at least two players
     const seated = table.seats.filter((s) => s.playerId).length;
     return seated >= 1;
   }
 
-  // If table flips to playing, go to game
   useEffect(() => {
     if (roomCode && table?.status === "playing") {
       onStartGame(roomCode);
@@ -167,14 +208,17 @@ export default function LobbyScreen({
         ) : (
           <>
             <View style={styles.headerRow}>
-            <Text style={styles.roomText}>Room: {roomCode}</Text>
-            {table ? <Btn label="Invite" onPress={onInvite} /> : null}
+              <Text style={styles.roomText}>Room: {roomCode}</Text>
+              {table ? <Btn label="Invite" onPress={onInvite} /> : null}
             </View>
 
             <View style={styles.seats}>
               {table?.seats?.map((s) => {
                 const occupied = !!s.playerId;
                 const isYou = s.playerId === playerId;
+                const adviceOn = s.adviceEnabled === true;
+                const canToggleAdvice = isYou || isHost;
+
                 return (
                   <View
                     key={s.seatIndex}
@@ -187,13 +231,23 @@ export default function LobbyScreen({
                     <Text style={styles.seatTitle}>
                       Seat {s.seatIndex + 1} {s.isHost ? "👑" : ""}
                     </Text>
+
                     <Text style={occupied ? styles.seatName : styles.seatNameMuted}>
                       {occupied ? `${s.name}${isYou ? " (You)" : ""}` : "Empty"}
                     </Text>
+
                     {occupied ? (
-                      <Text style={[styles.badge, s.isReady ? styles.badgeReady : styles.badgeNotReady]}>
-                        {s.isReady ? "Ready" : "Not ready"}
-                      </Text>
+                      <>
+                        <Text style={[styles.badge, s.isReady ? styles.badgeReady : styles.badgeNotReady]}>
+                          {s.isReady ? "Ready" : "Not ready"}
+                        </Text>
+
+                        <TogglePill
+                          on={adviceOn}
+                          disabled={!canToggleAdvice}
+                          onPress={() => onToggleAdvice(s.playerId!, !adviceOn)}
+                        />
+                      </>
                     ) : null}
                   </View>
                 );
@@ -206,17 +260,20 @@ export default function LobbyScreen({
                 onPress={onToggleReady}
                 disabled={!youSeat}
               />
+
               {isHost ? (
                 <Btn
-                label="Start"
-                onPress={async () => {
+                  label="Start"
+                  onPress={async () => {
+                    setError("");
                     try {
-                    await startTable(roomCode);
+                      await startSharedRound(roomCode);
+                      onStartGame(roomCode);
                     } catch (e: any) {
-                    setError(e?.message ?? "Failed to start");
+                      setError(e?.message ?? "Failed to start");
                     }
-                }}
-                disabled={!startEnabled()}
+                  }}
+                  disabled={!startEnabled()}
                 />
               ) : (
                 <View style={styles.waitBox}>
@@ -228,7 +285,6 @@ export default function LobbyScreen({
             <View style={styles.row}>
               <Btn label="Leave" onPress={onLeave} />
             </View>
-
           </>
         )}
 
@@ -244,44 +300,181 @@ export default function LobbyScreen({
 
 const styles = StyleSheet.create({
   container: { gap: 12 },
-  h1: { color: "white", fontSize: 22, fontWeight: "900" },
-  panel: { backgroundColor: "#111b33", borderRadius: 14, padding: 14, gap: 10 },
-  label: { color: "#cbd5e1", fontWeight: "700" },
-  input: {
-    backgroundColor: "#0f172a",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: "white",
-    borderWidth: 1,
-    borderColor: "#24324f",
-  },
-  row: { flexDirection: "row", gap: 10 },
-  btn: { flex: 1, backgroundColor: "#2563eb", paddingVertical: 12, borderRadius: 12, alignItems: "center" },
-  btnText: { color: "white", fontWeight: "900" },
-  btnDisabled: { backgroundColor: "#334155" },
-  btnPressed: { transform: [{ scale: 0.98 }] },
 
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  roomText: { color: "white", fontWeight: "900", fontSize: 16 },
+  h1: {
+    color: "#fff7d6",
+    fontSize: 24,
+    fontWeight: "900",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+  },
+
+  panel: {
+    backgroundColor: "#fff7d6",
+    borderRadius: 22,
+    padding: 14,
+    gap: 12,
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+
+  label: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    opacity: 0.85,
+  },
+
+  input: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#1b0b24",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+    fontWeight: "900",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+
+  row: { flexDirection: "row", gap: 10 },
+
+  btn: {
+    flex: 1,
+    backgroundColor: "#ff4d8d",
+    paddingVertical: 14,
+    borderRadius: 18,
+    alignItems: "center",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+  btnText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  btnDisabled: {
+    backgroundColor: "#cbd5e1",
+    borderColor: "#64748b",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  btnPressed: { transform: [{ scale: 0.97 }] },
+
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  roomText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    fontSize: 16,
+    letterSpacing: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#ffd24a",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+  },
 
   seats: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
-  seat: { width: "48%", padding: 12, borderRadius: 14, borderWidth: 1, gap: 6 },
-  seatOcc: { backgroundColor: "#0b1220", borderColor: "#24324f" },
-  seatEmpty: { backgroundColor: "#0f172a", borderColor: "#1f2a44" },
-  seatYou: { borderColor: "#60a5fa", borderWidth: 2 },
 
-  seatTitle: { color: "#e2e8f0", fontWeight: "800" },
-  seatName: { color: "white", fontSize: 16, fontWeight: "900" },
-  seatNameMuted: { color: "#94a3b8", fontSize: 16, fontWeight: "800" },
+  seat: {
+    width: "48%",
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 4,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
 
-  badge: { alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, overflow: "hidden", fontWeight: "900", color: "white" },
-  badgeReady: { backgroundColor: "#16a34a" },
-  badgeNotReady: { backgroundColor: "#64748b" },
+  seatOcc: { backgroundColor: "#2ee6a6", borderColor: "#1b0b24" },
+  seatEmpty: { backgroundColor: "#ffffff", borderColor: "#1b0b24", opacity: 0.85 },
 
-  waitBox: { flex: 1, backgroundColor: "#0b1220", borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  waitText: { color: "#cbd5e1", fontWeight: "800" },
+  seatYou: { borderColor: "#ff4d8d", borderWidth: 5 },
 
-  err: { color: "#fca5a5", fontWeight: "800" },
-  note: { color: "#94a3b8" },
+  seatTitle: { color: "#1b0b24", fontWeight: "900", letterSpacing: 0.5 },
+  seatName: { color: "#1b0b24", fontSize: 16, fontWeight: "900" },
+  seatNameMuted: { color: "#1b0b24", fontSize: 16, fontWeight: "900", opacity: 0.5 },
+
+  badge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+    fontWeight: "900",
+    color: "#1b0b24",
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+  },
+  badgeReady: { backgroundColor: "#22c55e" },
+  badgeNotReady: { backgroundColor: "#cbd5e1" },
+
+  pill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+  },
+  pillOn: { backgroundColor: "#ffd24a" },
+  pillOff: { backgroundColor: "#ffffff" },
+  pillDisabled: { opacity: 0.5 },
+  pillPressed: { transform: [{ scale: 0.98 }] },
+  pillText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    fontSize: 12,
+  },
+
+  waitBox: {
+    flex: 1,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffd24a",
+    borderWidth: 4,
+    borderColor: "#1b0b24",
+  },
+  waitText: { color: "#1b0b24", fontWeight: "900", letterSpacing: 0.5 },
+
+  err: {
+    color: "#b91c1c",
+    fontWeight: "900",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+    backgroundColor: "#fecaca",
+  },
+
+  note: { color: "#ffe29a", fontWeight: "900", opacity: 0.95 },
 });
