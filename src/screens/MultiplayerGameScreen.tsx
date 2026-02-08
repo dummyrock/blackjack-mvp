@@ -22,6 +22,7 @@ import {
   startHand,
   totalPayout,
 } from "../engine/blackjack";
+import { getAdvice } from "../engine/basicStrategy";
 import { startSharedRound, playerAction, hostDealerStep, hostAdvanceIntermission } from "../lobby/gameSync";
 import { setReadyAndBet, resetAllReady } from "../lobby/firestoreLobby";
 import PokerTableLayout from "./PokerTableLayout";
@@ -729,6 +730,44 @@ export default function MultiplayerGameScreen({
     return h?.outcome === "playing";
   }, [state]);
 
+  function rankValue(rank: string) {
+    if (rank === "A") return 11;
+    if (rank === "J" || rank === "Q" || rank === "K") return 10;
+    return Number(rank);
+  }
+
+  const adviceLabel = useMemo(() => {
+    if (!table?.game) return null;
+    const seat = table.seats.find((s) => s.playerId === myPlayerId);
+    if (!seat?.adviceEnabled) return null;
+    if (waitingForReady || inIntermission) return null;
+    if (table.game.phase !== "round_player") return null;
+    if (table.game.players[table.game.actingPlayerIndex]?.playerId !== myPlayerId) return null;
+
+    const me = table.game.players.find((p) => p.playerId === myPlayerId);
+    if (!me) return null;
+    const hand = me.hands[me.currentHand];
+    if (!hand || hand.outcome !== "playing" || hand.cards.length < 2) return null;
+
+    const dealerUp = table.game.dealer[0];
+    if (!dealerUp) return null;
+    const dealerUpcard = rankValue(dealerUp.rank);
+
+    const [r1, r2] = [hand.cards[0].rank, hand.cards[1].rank];
+    const total = handTotal(hand.cards);
+    const kind = r1 === r2 ? "pair" : total.soft ? "soft" : "hard";
+    const advice = getAdvice({
+      kind,
+      total: total.total,
+      pairRank: r1 === r2 ? rankValue(r1) : undefined,
+      dealerUpcard,
+      allowSurrender: false,
+    });
+
+    if (advice.action === "S" || advice.action === "Ds") return "Stand";
+    return "Hit";
+  }, [table, myPlayerId, waitingForReady, inIntermission]);
+
   const canDoubleWithBankroll = useMemo(() => {
     if (!state) return false;
     return state.phase === "player" && canDouble(state) && availableBankroll >= currentHandBet;
@@ -838,6 +877,14 @@ export default function MultiplayerGameScreen({
               ? "Dealer is playing…"
               : "Game over — next game loading…"}
           </Text>
+
+          {adviceLabel ? (
+            <View style={styles.adviceRow}>
+              <View style={styles.advicePill}>
+                <Text style={styles.adviceText}>Advice: {adviceLabel}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.actionRow}>
             <Pressable
@@ -1222,6 +1269,21 @@ const styles = StyleSheet.create({
     color: "#1b0b24",
     fontWeight: "900",
     letterSpacing: 0.6,
+  },
+  adviceRow: { alignItems: "flex-end" },
+  advicePill: {
+    alignSelf: "flex-end",
+    backgroundColor: "#ffd24a",
+    borderWidth: 3,
+    borderColor: "#1b0b24",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  adviceText: {
+    color: "#1b0b24",
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
   actionRow: { flexDirection: "row", gap: 10 },
 
