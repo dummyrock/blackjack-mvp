@@ -115,6 +115,9 @@ export async function joinTable(roomCode: string, playerId: string, name: string
   const open = table.seats.find((s) => !s.playerId);
   if (!open) throw new Error("Table is full");
 
+  const hasHost = table.seats.some((s) => s.playerId && s.isHost);
+  const shouldBecomeHost = !table.hostId || !hasHost;
+
   const seats: Seat[] = table.seats.map((s) =>
     s.seatIndex === open.seatIndex
       ? {
@@ -122,14 +125,17 @@ export async function joinTable(roomCode: string, playerId: string, name: string
           playerId,
           name,
           isReady: false,
-          isHost: false,
+          isHost: shouldBecomeHost,
           bet: 0,
           adviceEnabled: false,
         }
       : s
   );
 
-  await updateDoc(ref, { seats });
+  const update: any = { seats };
+  if (shouldBecomeHost) update.hostId = playerId;
+
+  await updateDoc(ref, update);
 }
 
 export async function leaveTable(roomCode: string, playerId: string) {
@@ -140,21 +146,37 @@ export async function leaveTable(roomCode: string, playerId: string) {
   const raw = snap.data() as any;
   const table: TableDoc = { ...raw, game: raw.game ?? null };
 
-  const seats: Seat[] = table.seats.map((s) =>
-    s.playerId === playerId
-      ? {
-          ...s,
-          playerId: null,
-          name: null,
-          isReady: false,
-          isHost: false,
-          bet: 0,
-          adviceEnabled: false,
-        }
-      : s
-  );
+  const leavingHost = table.hostId === playerId;
+  const nextHostSeat = leavingHost
+    ? table.seats.find((s) => s.playerId && s.playerId !== playerId)
+    : null;
+  const nextHostId = nextHostSeat?.playerId ?? null;
 
-  await updateDoc(ref, { seats });
+  const seats: Seat[] = table.seats.map((s) => {
+    if (s.playerId === playerId) {
+      return {
+        ...s,
+        playerId: null,
+        name: null,
+        isReady: false,
+        isHost: false,
+        bet: 0,
+        adviceEnabled: false,
+      };
+    }
+
+    if (leavingHost) {
+      if (s.playerId && s.playerId === nextHostId) return { ...s, isHost: true };
+      return { ...s, isHost: false };
+    }
+
+    return s;
+  });
+
+  const update: any = { seats };
+  if (leavingHost) update.hostId = nextHostId ?? "";
+
+  await updateDoc(ref, update);
 }
 
 export async function toggleReady(roomCode: string, playerId: string) {

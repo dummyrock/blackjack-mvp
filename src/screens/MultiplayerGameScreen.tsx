@@ -23,8 +23,14 @@ import {
   totalPayout,
 } from "../engine/blackjack";
 import { getAdvice } from "../engine/basicStrategy";
-import { startSharedRound, playerAction, hostDealerStep, hostAdvanceIntermission } from "../lobby/gameSync";
-import { setReadyAndBet, resetAllReady } from "../lobby/firestoreLobby";
+import {
+  startSharedRound,
+  playerAction,
+  hostDealerStep,
+  hostAdvanceIntermission,
+  hostPruneMissingPlayers,
+} from "../lobby/gameSync";
+import { setReadyAndBet, resetAllReady, leaveTable } from "../lobby/firestoreLobby";
 import PokerTableLayout from "./PokerTableLayout";
 import { subscribeTable, TableDoc } from "../lobby/firestoreLobby";
 
@@ -143,6 +149,14 @@ export default function MultiplayerGameScreen({
     return () => unsub();
   }, [roomCode]);
 
+  useEffect(() => {
+    return () => {
+      if (roomCode && myPlayerId) {
+        leaveTable(roomCode, myPlayerId).catch((err) => console.warn("leaveTable failed", err));
+      }
+    };
+  }, [roomCode, myPlayerId]);
+
   const seats = useMemo(() => {
     // fallback if table not loaded yet
     if (!table?.seats?.length) {
@@ -155,6 +169,13 @@ export default function MultiplayerGameScreen({
   }, [table, myPlayerId, myName]);
 
   const maxSeats = useMemo(() => Math.max(6, seats.length), [seats.length]);
+
+  const exitToLobby = () => {
+    if (roomCode && myPlayerId) {
+      leaveTable(roomCode, myPlayerId).catch((err) => console.warn("leaveTable failed", err));
+    }
+    onExit();
+  };
 
   // ---- BANKROLL + BET (LOCAL, same as before) ----
   const STARTING_BANKROLL = 2000;
@@ -254,15 +275,29 @@ export default function MultiplayerGameScreen({
   const countdownEnded = sharedIntermissionEndsAt != null && nowTick >= sharedIntermissionEndsAt;
   const preGameBetting = !!roomCode && !table?.game;
   const seatedPlayers = useMemo(() => table?.seats.filter((s) => s.playerId) ?? [], [table?.seats]);
+  const readyPlayers = useMemo(() => {
+    if (!table) return [];
+    if (!table.game) return seatedPlayers;
+    if (table.game.phase === "betting") return seatedPlayers;
+
+    const activeIds = new Set(table.game.players.map((p) => p.playerId));
+    return seatedPlayers.filter((s) => s.playerId && activeIds.has(s.playerId));
+  }, [table, seatedPlayers]);
   const allReady = useMemo(
-    () => seatedPlayers.length > 0 && seatedPlayers.every((s) => s.isReady && (s.bet ?? 0) > 0),
-    [seatedPlayers]
+    () => readyPlayers.length > 0 && readyPlayers.every((s) => s.isReady && (s.bet ?? 0) > 0),
+    [readyPlayers]
   );
   const waitingForReady = !!table?.game && table.game.phase === "round_player" && !allReady;
   const showBettingState =
     preGameBetting ||
     waitingForReady ||
     (!!table?.game && (table.game.phase === "betting" || (table.game.phase === "intermission" && countdownEnded)));
+
+  const missingGamePlayers = useMemo(() => {
+    if (!table?.game) return false;
+    const seatIds = new Set((table.seats ?? []).filter((s) => s.playerId).map((s) => s.playerId as string));
+    return table.game.players.some((p) => !seatIds.has(p.playerId));
+  }, [table]);
 
   const isHandFinished = activePhase === "settled";
   const inIntermission = activePhase === "intermission" && sharedIntermissionEndsAt != null && !betModalOpen;
@@ -515,6 +550,16 @@ export default function MultiplayerGameScreen({
     startSharedRound(roomCode).catch((err) => console.warn("startSharedRound failed", err));
   }, [table, roomCode, myPlayerId, allReady]);
 
+  // ---- Host-only: prune players who left mid-hand ----
+  useEffect(() => {
+    if (!table?.game) return;
+    if (table.hostId !== myPlayerId) return;
+    if (!missingGamePlayers) return;
+    hostPruneMissingPlayers(roomCode, myPlayerId).catch((e) =>
+      console.warn("hostPruneMissingPlayers failed", e)
+    );
+  }, [missingGamePlayers, table?.hostId, table?.game?.phase, myPlayerId, roomCode]);
+
   // ---- Reset all ready flags when entering intermission ----
   useEffect(() => {
     if (!table?.game) return;
@@ -764,8 +809,19 @@ export default function MultiplayerGameScreen({
       allowSurrender: false,
     });
 
-    if (advice.action === "S" || advice.action === "Ds") return "Stand";
-    return "Hit";
+    switch (advice.action) {
+      case "P":
+        return "Split";
+      case "D":
+      case "Ds":
+        return "Double";
+      case "S":
+        return "Stand";
+      case "R":
+        return "Surrender";
+      default:
+        return "Hit";
+    }
   }, [table, myPlayerId, waitingForReady, inIntermission]);
 
   const canDoubleWithBankroll = useMemo(() => {
@@ -840,7 +896,7 @@ export default function MultiplayerGameScreen({
           </View>
 
           <View style={[styles.topBarSide, { alignItems: "flex-end" }]}>
-            <Pressable onPress={onExit} style={styles.smallBtn}>
+            <Pressable onPress={exitToLobby} style={styles.smallBtn}>
               <Text style={styles.smallBtnText}>Lobby</Text>
             </Pressable>
 

@@ -209,3 +209,83 @@ export async function hostAdvanceIntermission(roomCode: string, hostId: string) 
     tx.update(ref, { game });
   });
 }
+
+/**
+ * Host-only: remove players who have left their seats from an active game.
+ * This keeps turn order moving if someone disconnects mid-hand.
+ */
+export async function hostPruneMissingPlayers(roomCode: string, hostId: string) {
+  const ref = doc(db, "tables", roomCode);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+
+    const table = snap.data() as TableDoc;
+    if (table.hostId !== hostId) return;
+
+    const game = table.game;
+    if (!game) return;
+
+    const activeSeatIds = new Set(
+      table.seats.filter((s) => s.playerId).map((s) => s.playerId as string)
+    );
+
+    const oldPlayers = game.players;
+    const keptPlayers = oldPlayers.filter((p) => activeSeatIds.has(p.playerId));
+
+    if (keptPlayers.length === oldPlayers.length) return;
+
+    const nextGame: SharedGame = { ...game, players: keptPlayers };
+
+    if (keptPlayers.length === 0) {
+      nextGame.phase = "betting";
+      nextGame.actingPlayerIndex = 0;
+      nextGame.intermissionEndsAt = null;
+      nextGame.revealDealer = false;
+      tx.update(ref, { game: nextGame });
+      return;
+    }
+
+    const oldActingId = oldPlayers[game.actingPlayerIndex]?.playerId;
+
+    if (nextGame.phase === "round_player") {
+      let nextActingIndex = keptPlayers.findIndex((p) => p.playerId === oldActingId);
+
+      if (nextActingIndex === -1) {
+        let nextId: string | null = null;
+        for (let i = game.actingPlayerIndex + 1; i < oldPlayers.length; i++) {
+          const p = oldPlayers[i];
+          if (activeSeatIds.has(p.playerId) && !p.done) {
+            nextId = p.playerId;
+            break;
+          }
+        }
+
+        if (nextId) {
+          nextActingIndex = keptPlayers.findIndex((p) => p.playerId === nextId);
+        } else {
+          nextActingIndex = keptPlayers.findIndex((p) => !p.done);
+        }
+      }
+
+      if (nextActingIndex === -1) {
+        nextGame.phase = "dealer";
+        nextGame.revealDealer = false;
+      } else {
+        let idx = nextActingIndex;
+        while (idx < keptPlayers.length && keptPlayers[idx].done) idx++;
+        if (idx < keptPlayers.length) {
+          nextGame.actingPlayerIndex = idx;
+        } else {
+          nextGame.phase = "dealer";
+          nextGame.revealDealer = false;
+        }
+      }
+    } else {
+      nextGame.actingPlayerIndex = Math.min(game.actingPlayerIndex, keptPlayers.length - 1);
+    }
+
+    tx.update(ref, { game: nextGame });
+  });
+}
