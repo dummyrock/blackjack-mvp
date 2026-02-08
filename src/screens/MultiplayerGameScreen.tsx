@@ -22,7 +22,8 @@ import {
   startHand,
   totalPayout,
 } from "../engine/blackjack";
-import { startSharedRound, playerAction, hostDealerStep } from "../lobby/gameSync";
+import { startSharedRound, playerAction, hostDealerStep, hostAdvanceIntermission } from "../lobby/gameSync";
+import { setReady, resetAllReady } from "../lobby/firestoreLobby";
 import PokerTableLayout from "./PokerTableLayout";
 import { subscribeTable, TableDoc } from "../lobby/firestoreLobby";
 
@@ -243,9 +244,23 @@ export default function MultiplayerGameScreen({
   const INTERMISSION_MS = 10_000;
   const [intermissionEndsAt, setIntermissionEndsAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState<number>(Date.now());
+  const openedIntermissionRef = useRef<number | null>(null);
+  const bettingPhaseDealtRef = useRef<boolean>(false);
 
   const activePhase = table?.game?.phase ?? state?.phase ?? null;
   const sharedIntermissionEndsAt = table?.game?.intermissionEndsAt ?? intermissionEndsAt;
+  const countdownEnded = sharedIntermissionEndsAt != null && nowTick >= sharedIntermissionEndsAt;
+  const preGameBetting = !!roomCode && !table?.game;
+  const seatedPlayers = useMemo(() => table?.seats.filter((s) => s.playerId) ?? [], [table?.seats]);
+  const allReady = useMemo(
+    () => seatedPlayers.length > 0 && seatedPlayers.every((s) => s.isReady),
+    [seatedPlayers]
+  );
+  const waitingForReady = !!table?.game && table.game.phase === "round_player" && !allReady;
+  const showBettingState =
+    preGameBetting ||
+    waitingForReady ||
+    (!!table?.game && (table.game.phase === "betting" || (table.game.phase === "intermission" && countdownEnded)));
 
   const isHandFinished = activePhase === "settled";
   const inIntermission = activePhase === "intermission" && sharedIntermissionEndsAt != null && !betModalOpen;
@@ -258,10 +273,10 @@ export default function MultiplayerGameScreen({
   }
 
   useEffect(() => {
-    if (!intermissionEndsAt) return;
+    if (!sharedIntermissionEndsAt) return;
     const id = setInterval(() => setNowTick(Date.now()), 50);
     return () => clearInterval(id);
-  }, [intermissionEndsAt]);
+  }, [sharedIntermissionEndsAt]);
 
   function resetSession() {
     setBankroll(STARTING_BANKROLL);
@@ -312,9 +327,12 @@ export default function MultiplayerGameScreen({
 
     setReserved(wager);
 
-    // If we're in a room, start a shared round via Firestore so everyone sees the same cards
+    // If we're in a room, signal ready (host will start the round when everyone is ready)
     if (roomCode) {
-      startSharedRound(roomCode).catch((err) => console.warn("startSharedRound failed", err));
+      const seat = table?.seats?.find((s) => s.playerId === myPlayerId);
+      if (!seat?.isReady) {
+        setReady(roomCode, myPlayerId, true).catch((err) => console.warn("setReady failed", err));
+      }
       payoutCreditedRef.current = false;
       stopIntermission();
       setBetModalOpen(false);
@@ -335,8 +353,8 @@ export default function MultiplayerGameScreen({
   const handsByPlayerId = useMemo(() => {
     const out: Record<string, any> = {};
 
-    // If a shared game exists on the table, render everyone from the shared game
-    if (table?.game) {
+    // If a shared game exists on the table AND we're not in betting (or countdown-ended intermission), render everyone
+    if (table?.game && !showBettingState) {
       for (const p of table.game.players) {
         out[p.playerId] = {
           hands: p.hands.map((h: any, idx: number) => ({
@@ -367,6 +385,27 @@ export default function MultiplayerGameScreen({
         };
       }
 
+      return out;
+    }
+
+    // During betting phase (or countdown-ended intermission): show all players with hidden cards
+    if (showBettingState) {
+      for (const s of seats) {
+        if (!s.playerId) continue;
+        out[s.playerId] = {
+          hands: [
+            {
+              cards: [
+                { rank: "?", suit: "?" },
+                { rank: "?", suit: "?" },
+              ],
+              bet: undefined,
+              isActive: false,
+            },
+          ],
+          isActing: false,
+        };
+      }
       return out;
     }
 
@@ -410,7 +449,7 @@ export default function MultiplayerGameScreen({
     }
 
     return out;
-  }, [state, myPlayerId, seats, table]);
+  }, [state, myPlayerId, seats, table, showBettingState]);
 
   const dealerTotalLabel = useMemo(() => {
     const src = table?.game ? { dealer: table.game.dealer, revealDealer: !!table.game.revealDealer } : state;
@@ -425,6 +464,14 @@ export default function MultiplayerGameScreen({
   }, [state, table]);
 
   const dealerCards = useMemo(() => {
+    // During betting phase (or countdown-ended intermission), hide all cards (show as hidden/?)
+    if (showBettingState) {
+      return [
+        { rank: "?", suit: "?", hidden: true },
+        { rank: "?", suit: "?", hidden: true },
+      ];
+    }
+
     const src = table?.game ? { dealer: table.game.dealer, revealDealer: !!table.game.revealDealer } : state;
     if (!src) return [];
     return src.dealer.map((c: any, idx: number) => ({
@@ -432,7 +479,50 @@ export default function MultiplayerGameScreen({
       suit: c.suit,
       hidden: !src.revealDealer && idx === 1,
     }));
-  }, [state, table]);
+  }, [state, table, showBettingState]);
+
+  // ---- Auto-start shared round when everyone is ready (host only) ----
+  useEffect(() => {
+    if (!table) return;
+
+    // If no game yet, allow ready-based start from the first bet window
+    if (!table.game) {
+      if (!allReady) {
+        bettingPhaseDealtRef.current = false;
+        return;
+      }
+      if (bettingPhaseDealtRef.current) return;
+      if (table.hostId !== myPlayerId) return;
+
+      bettingPhaseDealtRef.current = true;
+      startSharedRound(roomCode).catch((err) => console.warn("startSharedRound failed", err));
+      return;
+    }
+
+    // Reset dealt flag when NOT in betting phase
+    if (table.game.phase !== "betting") {
+      bettingPhaseDealtRef.current = false;
+      return;
+    }
+
+    // If we already dealt for this betting phase, don't deal again
+    if (bettingPhaseDealtRef.current) return;
+    if (!allReady) return;
+    if (table.hostId !== myPlayerId) return;
+
+    // Mark that we've dealt for this betting phase
+    bettingPhaseDealtRef.current = true;
+    startSharedRound(roomCode).catch((err) => console.warn("startSharedRound failed", err));
+  }, [table, roomCode, myPlayerId, allReady]);
+
+  // ---- Reset all ready flags when entering intermission ----
+  useEffect(() => {
+    if (!table?.game) return;
+    if (table.game.phase !== "intermission") return;
+    if (table.hostId !== myPlayerId) return;
+    
+    resetAllReady(roomCode).catch((e) => console.warn("resetAllReady failed", e));
+  }, [table?.game?.phase, table?.hostId, myPlayerId, roomCode]);
 
   // ---- Dealer autoplay ----
   const dealerSeqRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; running: boolean }>({
@@ -547,15 +637,32 @@ export default function MultiplayerGameScreen({
 
   // ---- When countdown finishes, auto-open bet modal ----
   useEffect(() => {
-    if (!intermissionEndsAt) return;
+    const endsAt = sharedIntermissionEndsAt;
+    if (!endsAt) return;
     if (betModalOpen) return;
+    if (table?.game && table.game.phase !== "intermission" && table.game.phase !== "betting") return;
 
-    const left = intermissionEndsAt - nowTick;
+    const left = endsAt - nowTick;
     if (left <= 0) {
-      openBetModal();
-      stopIntermission();
+      // open bet modal only once per intermission window
+      if (openedIntermissionRef.current !== endsAt) {
+        openBetModal();
+        openedIntermissionRef.current = endsAt;
+      }
+      if (!table?.game) stopIntermission();
     }
-  }, [intermissionEndsAt, nowTick, betModalOpen]);
+  }, [sharedIntermissionEndsAt, nowTick, betModalOpen, table?.game]);
+
+  // If we're host and intermission has passed, advance to betting phase in Firestore
+  useEffect(() => {
+    if (!table?.game) return;
+    if (table.game.phase !== "intermission") return;
+    if (table.hostId !== myPlayerId) return;
+    const endsAt = table.game.intermissionEndsAt ?? 0;
+    if (nowTick >= endsAt) {
+      hostAdvanceIntermission(roomCode, myPlayerId).catch((e) => console.warn("hostAdvanceIntermission failed", e));
+    }
+  }, [table?.game?.phase, table?.game?.intermissionEndsAt, nowTick, table?.hostId, myPlayerId, roomCode]);
 
   // ---- Action affordability ----
   const currentHandBet = useMemo(() => {
@@ -573,6 +680,38 @@ export default function MultiplayerGameScreen({
     if (!state) return false;
     return state.phase === "player" && canSplit(state) && availableBankroll >= currentHandBet;
   }, [state, availableBankroll, currentHandBet]);
+
+  function rankValue(rank: string | number | any) {
+    if (rank === "A") return 11;
+    if (rank === "J" || rank === "Q" || rank === "K") return 10;
+    const n = Number(rank);
+    return isNaN(n) ? 0 : n;
+  }
+
+  // Shared-game affordances: determine whether current shared player may double/split
+  const sharedPlayerIndex = table?.game ? table.game.players.findIndex((p) => p.playerId === myPlayerId) : -1;
+  const sharedPlayer = table?.game ? table.game.players[sharedPlayerIndex] : null;
+
+  const sharedCanDouble = useMemo(() => {
+    if (!table?.game) return false;
+    if (table.game.phase !== "round_player") return false;
+    if (table.game.actingPlayerIndex !== sharedPlayerIndex) return false;
+    if (!sharedPlayer) return false;
+    const h = sharedPlayer.hands[sharedPlayer.currentHand];
+    if (!h || h.outcome !== "playing") return false;
+    return h.cards.length === 2;
+  }, [table, sharedPlayerIndex, sharedPlayer]);
+
+  const sharedCanSplit = useMemo(() => {
+    if (!table?.game) return false;
+    if (table.game.phase !== "round_player") return false;
+    if (table.game.actingPlayerIndex !== sharedPlayerIndex) return false;
+    if (!sharedPlayer) return false;
+    const h = sharedPlayer.hands[sharedPlayer.currentHand];
+    if (!h || h.outcome !== "playing" || h.cards.length !== 2) return false;
+    const [r1, r2] = [h.cards[0].rank, h.cards[1].rank];
+    return r1 === r2 || (rankValue(r1 as any) === 10 && rankValue(r2 as any) === 10);
+  }, [table, sharedPlayerIndex, sharedPlayer]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -631,7 +770,9 @@ export default function MultiplayerGameScreen({
         {/* ACTION BAR */}
         <View style={styles.actionBar}>
           <Text style={styles.actionStatus}>
-            {!activePhase
+            {waitingForReady
+              ? "Waiting for players to readyâ€¦"
+              : !activePhase
               ? "Place a bet to deal."
               : activePhase === "betting" || activePhase === undefined
               ? "Place a bet to deal."
@@ -654,11 +795,12 @@ export default function MultiplayerGameScreen({
               disabled={
                 (table?.game ? !(table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId) : !state || state.phase !== "player") ||
                 isHandFinished ||
-                inIntermission
+                inIntermission ||
+                waitingForReady
               }
               style={({ pressed }) => [
                 styles.actionBtn,
-                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId : state && state.phase === "player") || isHandFinished || inIntermission) ? styles.actionBtnDisabled : null,
+                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId : state && state.phase === "player") || isHandFinished || inIntermission || waitingForReady) ? styles.actionBtnDisabled : null,
                 pressed ? styles.actionBtnPressed : null,
               ]}
             >
@@ -676,11 +818,12 @@ export default function MultiplayerGameScreen({
               disabled={
                 (table?.game ? !(table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId) : !state || state.phase !== "player") ||
                 isHandFinished ||
-                inIntermission
+                inIntermission ||
+                waitingForReady
               }
               style={({ pressed }) => [
                 styles.actionBtn,
-                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId : state && state.phase === "player") || isHandFinished || inIntermission) ? styles.actionBtnDisabled : null,
+                (!((table?.game) ? table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId : state && state.phase === "player") || isHandFinished || inIntermission || waitingForReady) ? styles.actionBtnDisabled : null,
                 pressed ? styles.actionBtnPressed : null,
               ]}
             >
@@ -702,10 +845,15 @@ export default function MultiplayerGameScreen({
                 safeSetReserved((r) => r + currentHandBet);
                 setState((s) => (s ? doubleDown(s) : s));
               }}
-              disabled={!(canDoubleWithBankroll || (table?.game && table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId)) || isHandFinished || inIntermission}
+              disabled={
+                isHandFinished ||
+                inIntermission ||
+                waitingForReady ||
+                (table?.game ? (!(sharedCanDouble) || availableBankroll < currentHandBet) : !canDoubleWithBankroll)
+              }
               style={({ pressed }) => [
                 styles.actionBtnAlt,
-                (!(canDoubleWithBankroll || (table?.game && table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId)) || isHandFinished || inIntermission) ? styles.actionBtnDisabled : null,
+                (isHandFinished || inIntermission || waitingForReady || (table?.game ? (!(sharedCanDouble) || availableBankroll < currentHandBet) : !canDoubleWithBankroll)) ? styles.actionBtnDisabled : null,
                 pressed ? styles.actionBtnPressed : null,
               ]}
             >
@@ -724,10 +872,15 @@ export default function MultiplayerGameScreen({
                 safeSetReserved((r) => r + currentHandBet);
                 setState((s) => (s ? split(s) : s));
               }}
-              disabled={!(canSplitWithBankroll || (table?.game && table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId)) || isHandFinished || inIntermission}
+              disabled={
+                isHandFinished ||
+                inIntermission ||
+                waitingForReady ||
+                (table?.game ? (!(sharedCanSplit) || availableBankroll < currentHandBet) : !canSplitWithBankroll)
+              }
               style={({ pressed }) => [
                 styles.actionBtnAlt,
-                (!(canSplitWithBankroll || (table?.game && table.game.phase === "round_player" && table.game.players[table.game.actingPlayerIndex]?.playerId === myPlayerId)) || isHandFinished || inIntermission) ? styles.actionBtnDisabled : null,
+                (isHandFinished || inIntermission || waitingForReady || (table?.game ? (!(sharedCanSplit) || availableBankroll < currentHandBet) : !canSplitWithBankroll)) ? styles.actionBtnDisabled : null,
                 pressed ? styles.actionBtnPressed : null,
               ]}
             >
@@ -738,10 +891,13 @@ export default function MultiplayerGameScreen({
           <View style={styles.actionRow}>
             <Pressable
               onPress={() => setBetModalOpen(true)}
-              disabled={inIntermission}
+              disabled={
+                inIntermission ||
+                (table?.game ? table.game.phase !== "intermission" && table.game.phase !== "betting" && !waitingForReady : false)
+              }
               style={({ pressed }) => [
                 styles.actionBtnWide,
-                inIntermission ? styles.actionBtnDisabled : null,
+                inIntermission || (table?.game ? table.game.phase !== "intermission" && table.game.phase !== "betting" && !waitingForReady : false) ? styles.actionBtnDisabled : null,
                 pressed ? styles.actionBtnPressed : null,
               ]}
             >
@@ -760,7 +916,7 @@ export default function MultiplayerGameScreen({
               <ActivityIndicator style={{ marginTop: 8 }} />
 
               {(() => {
-                const left = Math.max(0, (intermissionEndsAt ?? 0) - nowTick);
+                const left = Math.max(0, (sharedIntermissionEndsAt ?? 0) - nowTick);
                 const progress = Math.max(0, Math.min(1, 1 - left / INTERMISSION_MS));
                 return (
                   <>
@@ -846,11 +1002,11 @@ export default function MultiplayerGameScreen({
                   pressed && betTotal > 0 && betTotal <= availableBankroll ? styles.modalBtnPressed : null,
                 ]}
               >
-                <Text style={styles.dealBtnText}>DEAL</Text>
+                <Text style={styles.dealBtnText}>{roomCode ? "READY" : "DEAL"}</Text>
               </Pressable>
 
               <Text style={styles.betHint}>
-                Tap outside to close. Build your bet with chips, then press <Text style={{ fontWeight: "900" }}>DEAL</Text>.
+                Tap outside to close. Build your bet with chips, then press <Text style={{ fontWeight: "900" }}>{roomCode ? "READY" : "DEAL"}</Text>.
               </Text>
             </View>
           </View>

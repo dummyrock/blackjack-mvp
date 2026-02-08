@@ -188,6 +188,7 @@ export async function hostAdvanceIntermission(roomCode: string, hostId: string) 
     if (Date.now() < endsAt) return;
 
     game.phase = "betting";
+    game.intermissionEndsAt = null;
     tx.update(ref, { game });
   });
 }

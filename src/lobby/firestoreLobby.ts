@@ -168,6 +168,21 @@ export async function toggleReady(roomCode: string, playerId: string) {
   await updateDoc(ref, { seats });
 }
 
+export async function setReady(roomCode: string, playerId: string, isReady: boolean) {
+  const ref = doc(db, "tables", roomCode);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
+
+  const seats: Seat[] = table.seats.map((s) =>
+    s.playerId === playerId ? { ...s, isReady } : s
+  );
+
+  await updateDoc(ref, { seats });
+}
+
 /**
  * Toggle basic-strategy advice per player.
  * Permissions:
@@ -210,4 +225,19 @@ export async function toggleAdvice(
 export async function startTable(roomCode: string) {
   const ref = doc(db, "tables", roomCode);
   await updateDoc(ref, { status: "playing" });
+}
+
+export async function resetAllReady(roomCode: string) {
+  const ref = doc(db, "tables", roomCode);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const raw = snap.data() as any;
+  const table: TableDoc = { ...raw, game: raw.game ?? null };
+
+  const seats: Seat[] = table.seats.map((s) =>
+    s.playerId ? { ...s, isReady: false } : s
+  );
+
+  await updateDoc(ref, { seats });
 }

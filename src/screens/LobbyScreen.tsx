@@ -8,9 +8,10 @@ import {
   leaveTable,
   TableDoc,
   toggleAdvice,
+  startTable,
+  resetAllReady,
 } from "../lobby/firestoreLobby";
 import { getOrCreatePlayerId } from "../lobby/identity";
-import { startSharedRound } from "../lobby/gameSync";
 
 function Btn({
   label,
@@ -276,7 +277,8 @@ export default function LobbyScreen({
                   onPress={async () => {
                     setError("");
                     try {
-                      await startSharedRound(roomCode);
+                      await startTable(roomCode);
+                      await resetAllReady(roomCode);
                       onStartGame(roomCode, playerId, name.trim() || "You");
                     } catch (e: any) {
                       setError(e?.message ?? "Failed to start");

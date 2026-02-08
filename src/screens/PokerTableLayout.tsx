@@ -42,7 +42,8 @@ type PositionedSeat = Seat & {
 function cardValue(rank: string) {
   if (rank === "A") return 11;
   if (rank === "K" || rank === "Q" || rank === "J") return 10;
-  return Number(rank);
+  const n = Number(rank);
+  return Number.isNaN(n) ? null : n;
 }
 
 function totalLabelFor(cards: { rank: string; suit: string }[]) {
@@ -50,7 +51,9 @@ function totalLabelFor(cards: { rank: string; suit: string }[]) {
   let aces = 0;
 
   for (const c of cards) {
-    total += cardValue(c.rank);
+    const v = cardValue(c.rank);
+    if (v == null) return "";
+    total += v;
     if (c.rank === "A") aces++;
   }
 
