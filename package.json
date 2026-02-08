@@ -1,7 +1,6 @@
 {
   "name": "blackjack-mvp",
   "version": "1.0.0",
-  "homepage": "https://dummyrock.github.io/blackjack-mvp/",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
