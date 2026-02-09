@@ -6,12 +6,15 @@ const isCloudflarePages = Boolean(
     process.env.CF_PAGES_BRANCH
 );
 
-const baseUrl = isCloudflarePages ? "" : process.env.EXPO_BASE_URL || "";
-
 module.exports = () => ({
   ...appJson.expo,
-  experiments: {
-    ...(appJson.expo.experiments || {}),
-    baseUrl,
-  },
+
+  ...(isCloudflarePages
+    ? {}
+    : {
+        experiments: {
+          ...(appJson.expo.experiments || {}),
+          baseUrl: process.env.EXPO_BASE_URL,
+        },
+      }),
 });
